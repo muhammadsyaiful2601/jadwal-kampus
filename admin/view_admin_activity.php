@@ -93,39 +93,13 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.1/css/dataTables.bootstrap5.min.css">
     <style>
-        .sidebar {
-            background: linear-gradient(135deg, #2c3e50, #4a6491);
-            color: white;
-            min-height: 100vh;
-            position: fixed;
-            width: 250px;
-            z-index: 1000;
-        }
-        .main-content {
-            margin-left: 250px;
-            padding: 20px;
-            min-height: 100vh;
+        body {
             background-color: #f8f9fa;
         }
         .navbar-custom {
             background: white;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 15px 0;
-        }
-        .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
-            padding: 12px 20px;
-            margin: 5px 10px;
-            border-radius: 10px;
-            transition: all 0.3s;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: rgba(255,255,255,0.1);
-            color: white;
-        }
-        .sidebar .nav-link i {
-            width: 20px;
-            margin-right: 10px;
         }
         .user-avatar {
             width: 40px;
@@ -138,31 +112,9 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
             color: white;
             font-weight: bold;
         }
-        @media (max-width: 768px) {
-            .sidebar {
-                width: 100%;
-                position: relative;
-                min-height: auto;
-                display: none;
-            }
-            .sidebar.mobile-show {
-                display: block;
-            }
-            .main-content {
-                margin-left: 0;
-            }
-            .mobile-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.5);
-                z-index: 999;
-            }
-        }
         .content-wrapper {
             padding-top: 20px;
+            padding-bottom: 30px;
         }
         .page-header {
             background: white;
@@ -304,79 +256,169 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
             padding: 3px 8px;
             margin-left: 5px;
         }
+        .container-fluid {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        /* Responsive styles */
+        @media (max-width: 992px) {
+            .stats-card .number {
+                font-size: 2rem;
+            }
+            .activity-day-chart {
+                height: 150px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .page-header {
+                padding: 15px;
+            }
+            .content-wrapper {
+                padding-top: 10px;
+            }
+            .navbar-brand h4 {
+                font-size: 1.2rem;
+            }
+            .btn-group-responsive {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .btn-group-responsive .btn {
+                width: 100%;
+            }
+            .stats-card {
+                padding: 15px;
+            }
+            .stats-card .number {
+                font-size: 1.5rem;
+            }
+            .activity-day-chart {
+                height: 120px;
+                gap: 5px;
+            }
+            .chart-bar-label {
+                font-size: 0.7rem;
+                bottom: -20px;
+            }
+            .chart-bar-value {
+                font-size: 0.7rem;
+                top: -20px;
+            }
+            .filter-card .row {
+                gap: 10px;
+            }
+            .filter-card .col-md-3 {
+                width: 100%;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .page-header .row {
+                flex-direction: column;
+                gap: 15px;
+            }
+            .page-header .text-end {
+                text-align: left !important;
+            }
+            .stats-card .number {
+                font-size: 1.2rem;
+            }
+            .table-container {
+                padding: 10px;
+                overflow-x: auto;
+            }
+            .activity-day-chart {
+                overflow-x: auto;
+                padding-bottom: 30px;
+            }
+            .chart-bar {
+                min-width: 40px;
+            }
+            .export-buttons {
+                flex-direction: column;
+            }
+            .export-buttons .btn {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="d-flex">
-
-        <!-- Main Content -->
-        <div class="main-content flex-grow-1">
-            <!-- Navbar -->
-            <nav class="navbar navbar-expand-lg navbar-custom mb-4">
-                <div class="container-fluid">
-                    <button class="navbar-toggler d-md-none" type="button" onclick="toggleMobileSidebar()">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <div class="d-flex align-items-center">
-                        <h4 class="mb-0">Aktivitas Admin</h4>
-                        <span class="badge bg-warning ms-2">Superadmin Only</span>
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="me-3"><?php echo date('d F Y'); ?></span>
-                        <div class="dropdown">
-                            <button class="btn btn-light dropdown-toggle" type="button" 
-                                    data-bs-toggle="dropdown">
-                                <?php echo htmlspecialchars($_SESSION['username'] ?? ''); ?>
-                            </button>
-                            <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="profile.php">
-                                    <i class="fas fa-user me-2"></i>Profile
-                                </a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="logout.php">
-                                    <i class="fas fa-sign-out-alt me-2"></i>Logout
-                                </a></li>
-                            </ul>
-                        </div>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom mb-4">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center">
+                <a class="navbar-brand" href="dashboard.php">
+                    <h4 class="mb-0">Aktivitas Admin</h4>
+                </a>
+                <span class="badge bg-warning ms-2">Superadmin Only</span>
+            </div>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <div class="d-flex align-items-center ms-auto">
+                    <span class="me-3 d-none d-md-block"><?php echo date('d F Y'); ?></span>
+                    <div class="dropdown">
+                        <button class="btn btn-light dropdown-toggle" type="button" 
+                                data-bs-toggle="dropdown">
+                            <?php echo htmlspecialchars($_SESSION['username'] ?? ''); ?>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="profile.php">
+                                <i class="fas fa-user me-2"></i>Profile
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="logout.php">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
                     </div>
                 </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <div class="content-wrapper">
+            <!-- Breadcrumb -->
+            <nav aria-label="breadcrumb" class="mb-4">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="manage_users.php">Kelola Admin</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">Aktivitas Admin</li>
+                </ol>
             </nav>
 
-            <!-- Content -->
-            <div class="content-wrapper">
-                <!-- Breadcrumb -->
-                <nav aria-label="breadcrumb" class="mb-4">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="dashboard.php">Dashboard</a></li>
-                        <li class="breadcrumb-item"><a href="manage_users.php">Kelola Admin</a></li>
-                        <li class="breadcrumb-item active" aria-current="page">Aktivitas Admin</li>
-                    </ol>
-                </nav>
-
-                <!-- Page Header -->
-                <div class="page-header">
-                    <div class="row align-items-center">
-                        <div class="col-md-8">
-                            <h5 class="mb-1">Aktivitas Admin: <?php echo htmlspecialchars($admin['username'] ?? ''); ?></h5>
-                            <p class="text-muted mb-0">
-                                <span class="badge bg-<?php echo ($admin['role'] ?? '') == 'superadmin' ? 'danger' : 'primary'; ?>">
-                                    <?php echo strtoupper($admin['role'] ?? ''); ?>
-                                </span>
-                                <span class="badge bg-<?php echo ($admin['is_active'] ?? false) ? 'success' : 'secondary'; ?> ms-2">
-                                    <?php echo ($admin['is_active'] ?? false) ? 'AKTIF' : 'NONAKTIF'; ?>
-                                </span>
-                                <?php if(!empty($admin['email'])): ?>
-                                    <span class="ms-2"><i class="fas fa-envelope me-1"></i><?php echo htmlspecialchars($admin['email'] ?? ''); ?></span>
-                                <?php endif; ?>
-                            </p>
-                            <small class="text-muted">
-                                Bergabung sejak: <?php echo !empty($admin['created_at']) ? date('d F Y', strtotime($admin['created_at'])) : '-'; ?>
-                                <?php if(!empty($admin['last_login'])): ?>
-                                    | Terakhir login: <?php echo date('d/m/Y H:i', strtotime($admin['last_login'])); ?>
-                                <?php endif; ?>
-                            </small>
-                        </div>
-                        <div class="col-md-4 text-end">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-3 mb-lg-0">
+                        <h5 class="mb-1">Aktivitas Admin: <?php echo htmlspecialchars($admin['username'] ?? ''); ?></h5>
+                        <p class="text-muted mb-0">
+                            <span class="badge bg-<?php echo ($admin['role'] ?? '') == 'superadmin' ? 'danger' : 'primary'; ?>">
+                                <?php echo strtoupper($admin['role'] ?? ''); ?>
+                            </span>
+                            <span class="badge bg-<?php echo ($admin['is_active'] ?? false) ? 'success' : 'secondary'; ?> ms-2">
+                                <?php echo ($admin['is_active'] ?? false) ? 'AKTIF' : 'NONAKTIF'; ?>
+                            </span>
+                            <?php if(!empty($admin['email'])): ?>
+                                <span class="ms-2"><i class="fas fa-envelope me-1"></i><?php echo htmlspecialchars($admin['email'] ?? ''); ?></span>
+                            <?php endif; ?>
+                        </p>
+                        <small class="text-muted">
+                            Bergabung sejak: <?php echo !empty($admin['created_at']) ? date('d F Y', strtotime($admin['created_at'])) : '-'; ?>
+                            <?php if(!empty($admin['last_login'])): ?>
+                                | Terakhir login: <?php echo date('d/m/Y H:i', strtotime($admin['last_login'])); ?>
+                            <?php endif; ?>
+                        </small>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="btn-group-responsive d-flex flex-wrap gap-2">
                             <a href="manage_users.php" class="btn btn-outline-secondary">
                                 <i class="fas fa-arrow-left me-2"></i>Kembali
                             </a>
@@ -386,383 +428,389 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <?php echo displayMessage(); ?>
+            <?php echo displayMessage(); ?>
 
-                <!-- Warning untuk Superadmin -->
-                <div class="alert alert-warning mb-4">
-                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Informasi Keamanan</h6>
-                    <p class="mb-0">Halaman ini hanya dapat diakses oleh <strong>Superadmin</strong>. Semua aktivitas Anda dalam mengakses data ini akan dicatat dalam log audit.</p>
-                </div>
+            <!-- Warning untuk Superadmin -->
+            <div class="alert alert-warning mb-4">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Informasi Keamanan</h6>
+                <p class="mb-0">Halaman ini hanya dapat diakses oleh <strong>Superadmin</strong>. Semua aktivitas Anda dalam mengakses data ini akan dicatat dalam log audit.</p>
+            </div>
 
-                <!-- Statistik Card -->
-                <div class="row mb-4">
-                    <div class="col-md-3">
-                        <div class="stats-card">
-                            <div class="number"><?php echo $activity_stats['total_activities'] ?? 0; ?></div>
-                            <div class="label">Total Aktivitas</div>
-                            <i class="fas fa-history fa-2x mt-3"></i>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stats-card" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);">
-                            <div class="number"><?php echo $activity_stats['active_days'] ?? 0; ?></div>
-                            <div class="label">Hari Aktif</div>
-                            <i class="fas fa-calendar-alt fa-2x mt-3"></i>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stats-card" style="background: linear-gradient(135deg, #1dd1a1, #10ac84);">
-                            <div class="number">
-                                <?php echo !empty($activity_stats['first_activity']) 
-                                    ? date('d/m/Y', strtotime($activity_stats['first_activity'])) 
-                                    : '-'; ?>
-                            </div>
-                            <div class="label">Aktivitas Pertama</div>
-                            <i class="fas fa-play-circle fa-2x mt-3"></i>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="stats-card" style="background: linear-gradient(135deg, #54a0ff, #2e86de);">
-                            <div class="number">
-                                <?php echo !empty($activity_stats['last_activity']) 
-                                    ? date('d/m/Y', strtotime($activity_stats['last_activity'])) 
-                                    : '-'; ?>
-                            </div>
-                            <div class="label">Aktivitas Terakhir</div>
-                            <i class="fas fa-flag-checkered fa-2x mt-3"></i>
-                        </div>
+            <!-- Statistik Card -->
+            <div class="row mb-4">
+                <div class="col-6 col-md-3 mb-3">
+                    <div class="stats-card">
+                        <div class="number"><?php echo $activity_stats['total_activities'] ?? 0; ?></div>
+                        <div class="label">Total Aktivitas</div>
+                        <i class="fas fa-history fa-2x mt-3"></i>
                     </div>
                 </div>
+                <div class="col-6 col-md-3 mb-3">
+                    <div class="stats-card" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);">
+                        <div class="number"><?php echo $activity_stats['active_days'] ?? 0; ?></div>
+                        <div class="label">Hari Aktif</div>
+                        <i class="fas fa-calendar-alt fa-2x mt-3"></i>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3 mb-3">
+                    <div class="stats-card" style="background: linear-gradient(135deg, #1dd1a1, #10ac84);">
+                        <div class="number">
+                            <?php echo !empty($activity_stats['first_activity']) 
+                                ? date('d/m/Y', strtotime($activity_stats['first_activity'])) 
+                                : '-'; ?>
+                        </div>
+                        <div class="label">Aktivitas Pertama</div>
+                        <i class="fas fa-play-circle fa-2x mt-3"></i>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3 mb-3">
+                    <div class="stats-card" style="background: linear-gradient(135deg, #54a0ff, #2e86de);">
+                        <div class="number">
+                            <?php echo !empty($activity_stats['last_activity']) 
+                                ? date('d/m/Y', strtotime($activity_stats['last_activity'])) 
+                                : '-'; ?>
+                        </div>
+                        <div class="label">Aktivitas Terakhir</div>
+                        <i class="fas fa-flag-checkered fa-2x mt-3"></i>
+                    </div>
+                </div>
+            </div>
 
-                <!-- Info Summary -->
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Ringkasan Aktivitas</h6>
-                            </div>
-                            <div class="card-body">
-                                <table class="table table-sm summary-table">
-                                    <tbody>
-                                        <tr>
-                                            <td><strong>Rentang Waktu</strong></td>
-                                            <td>
-                                                <?php if(!empty($activity_range['first_date']) && !empty($activity_range['last_date'])): ?>
-                                                    <?php echo date('d/m/Y', strtotime($activity_range['first_date'])); ?> 
-                                                    - 
-                                                    <?php echo date('d/m/Y', strtotime($activity_range['last_date'])); ?>
-                                                    <span class="badge bg-info info-badge"><?php echo $activity_range['days_range'] ?? 0; ?> hari</span>
-                                                <?php else: ?>
-                                                    <span class="text-muted">Tidak ada data</span>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Rata-rata/Hari</strong></td>
-                                            <td>
-                                                <?php if(($activity_stats['active_days'] ?? 0) > 0): ?>
-                                                    <?php echo round(($activity_stats['total_activities'] ?? 0) / ($activity_stats['active_days'] ?? 1), 2); ?> aktivitas/hari
-                                                <?php else: ?>
-                                                    <span class="text-muted">0 aktivitas/hari</span>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Jenis Aksi Unik</strong></td>
-                                            <td>
-                                                <?php echo count($distinct_actions ?? []); ?> jenis
-                                                <?php if(!empty($distinct_actions)): ?>
-                                                    <span class="badge bg-success info-badge"><?php echo implode(', ', array_slice($distinct_actions, 0, 3)); ?><?php echo count($distinct_actions) > 3 ? '...' : ''; ?></span>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+            <!-- Info Summary -->
+            <div class="row mb-4">
+                <div class="col-lg-6 mb-4 mb-lg-0">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Ringkasan Aktivitas</h6>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm summary-table">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Rentang Waktu</strong></td>
+                                        <td>
+                                            <?php if(!empty($activity_range['first_date']) && !empty($activity_range['last_date'])): ?>
+                                                <?php echo date('d/m/Y', strtotime($activity_range['first_date'])); ?> 
+                                                - 
+                                                <?php echo date('d/m/Y', strtotime($activity_range['last_date'])); ?>
+                                                <span class="badge bg-info info-badge"><?php echo $activity_range['days_range'] ?? 0; ?> hari</span>
+                                            <?php else: ?>
+                                                <span class="text-muted">Tidak ada data</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Rata-rata/Hari</strong></td>
+                                        <td>
+                                            <?php if(($activity_stats['active_days'] ?? 0) > 0): ?>
+                                                <?php echo round(($activity_stats['total_activities'] ?? 0) / ($activity_stats['active_days'] ?? 1), 2); ?> aktivitas/hari
+                                            <?php else: ?>
+                                                <span class="text-muted">0 aktivitas/hari</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Jenis Aksi Unik</strong></td>
+                                        <td>
+                                            <?php echo count($distinct_actions ?? []); ?> jenis
+                                            <?php if(!empty($distinct_actions)): ?>
+                                                <span class="badge bg-success info-badge"><?php echo implode(', ', array_slice($distinct_actions, 0, 3)); ?><?php echo count($distinct_actions) > 3 ? '...' : ''; ?></span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h6 class="mb-0"><i class="fas fa-trophy me-2"></i>Top 5 Aksi Terbanyak</h6>
-                            </div>
-                            <div class="card-body">
-                                <?php if(!empty($top_actions)): ?>
-                                    <ul class="top-actions-list">
-                                        <?php foreach($top_actions as $action): ?>
-                                        <li>
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <span>
-                                                    <i class="fas <?php echo getActivityIcon($action['action'] ?? ''); ?> me-2 text-primary"></i>
-                                                    <?php echo htmlspecialchars(ucfirst($action['action'] ?? '')); ?>
-                                                </span>
-                                                <div>
-                                                    <span class="action-count"><?php echo $action['count'] ?? 0; ?>x</span>
-                                                    <small class="text-muted ms-2">
-                                                        terakhir: <?php echo !empty($action['last_performed']) ? date('d/m', strtotime($action['last_performed'])) : '-'; ?>
-                                                    </small>
-                                                </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-trophy me-2"></i>Top 5 Aksi Terbanyak</h6>
+                        </div>
+                        <div class="card-body">
+                            <?php if(!empty($top_actions)): ?>
+                                <ul class="top-actions-list">
+                                    <?php foreach($top_actions as $action): ?>
+                                    <li>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>
+                                                <i class="fas <?php echo getActivityIcon($action['action'] ?? ''); ?> me-2 text-primary"></i>
+                                                <?php echo htmlspecialchars(ucfirst($action['action'] ?? '')); ?>
+                                            </span>
+                                            <div>
+                                                <span class="action-count"><?php echo $action['count'] ?? 0; ?>x</span>
+                                                <small class="text-muted ms-2">
+                                                    terakhir: <?php echo !empty($action['last_performed']) ? date('d/m', strtotime($action['last_performed'])) : '-'; ?>
+                                                </small>
                                             </div>
-                                        </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                <?php else: ?>
-                                    <p class="text-center text-muted mb-0">Belum ada data aktivitas</p>
-                                <?php endif; ?>
-                            </div>
+                                        </div>
+                                    </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php else: ?>
+                                <p class="text-center text-muted mb-0">Belum ada data aktivitas</p>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Grafik Aktivitas 7 Hari Terakhir -->
-                <div class="card">
-                    <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Aktivitas 7 Hari Terakhir</h6>
-                    </div>
-                    <div class="card-body">
-                        <?php if(!empty($recent_activity)): ?>
-                            <div class="activity-day-chart">
-                                <?php 
-                                // Generate 7 hari terakhir
-                                $max_count = !empty($recent_activity) ? max(array_column($recent_activity, 'count')) : 1;
-                                for($i = 6; $i >= 0; $i--): 
-                                    $date = date('Y-m-d', strtotime("-$i days"));
-                                    $day_name = date('D', strtotime($date));
-                                    $count = $activity_by_day[$date] ?? 0;
-                                    $height = ($count / $max_count) * 100;
-                                ?>
-                                <div class="chart-bar" style="height: <?php echo max($height, 10); ?>%;">
-                                    <div class="chart-bar-value"><?php echo $count; ?></div>
-                                    <div class="chart-bar-label">
-                                        <?php 
-                                        $day_translation = [
-                                            'Mon' => 'Sen', 'Tue' => 'Sel', 'Wed' => 'Rab',
-                                            'Thu' => 'Kam', 'Fri' => 'Jum', 'Sat' => 'Sab',
-                                            'Sun' => 'Min'
-                                        ];
-                                        echo $day_translation[$day_name] ?? $day_name; 
-                                        ?><br>
-                                        <?php echo date('d/m', strtotime($date)); ?>
-                                    </div>
+            <!-- Grafik Aktivitas 7 Hari Terakhir -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Aktivitas 7 Hari Terakhir</h6>
+                </div>
+                <div class="card-body">
+                    <?php if(!empty($recent_activity)): ?>
+                        <div class="activity-day-chart">
+                            <?php 
+                            // Generate 7 hari terakhir
+                            $max_count = !empty($recent_activity) ? max(array_column($recent_activity, 'count')) : 1;
+                            for($i = 6; $i >= 0; $i--): 
+                                $date = date('Y-m-d', strtotime("-$i days"));
+                                $day_name = date('D', strtotime($date));
+                                $count = $activity_by_day[$date] ?? 0;
+                                $height = ($count / $max_count) * 100;
+                            ?>
+                            <div class="chart-bar" style="height: <?php echo max($height, 10); ?>%;">
+                                <div class="chart-bar-value"><?php echo $count; ?></div>
+                                <div class="chart-bar-label">
+                                    <?php 
+                                    $day_translation = [
+                                        'Mon' => 'Sen', 'Tue' => 'Sel', 'Wed' => 'Rab',
+                                        'Thu' => 'Kam', 'Fri' => 'Jum', 'Sat' => 'Sab',
+                                        'Sun' => 'Min'
+                                    ];
+                                    echo $day_translation[$day_name] ?? $day_name; 
+                                    ?><br>
+                                    <?php echo date('d/m', strtotime($date)); ?>
                                 </div>
-                                <?php endfor; ?>
                             </div>
-                        <?php else: ?>
-                            <p class="text-center text-muted">Belum ada aktivitas dalam 7 hari terakhir</p>
-                        <?php endif; ?>
-                    </div>
+                            <?php endfor; ?>
+                        </div>
+                    <?php else: ?>
+                        <p class="text-center text-muted">Belum ada aktivitas dalam 7 hari terakhir</p>
+                    <?php endif; ?>
                 </div>
+            </div>
 
-                <!-- Filter Form -->
-                <div class="filter-card">
-                    <form method="GET" class="row g-3">
-                        <input type="hidden" name="id" value="<?php echo $admin_id; ?>">
-                        
-                        <div class="col-md-3">
-                            <label class="form-label">Jenis Aksi</label>
-                            <select name="action" class="form-select">
-                                <option value="">Semua Aksi</option>
-                                <?php foreach(($distinct_actions ?? []) as $action): ?>
-                                    <option value="<?php echo htmlspecialchars($action ?? ''); ?>" 
-                                        <?php echo isset($_GET['action']) && $_GET['action'] == $action ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars(ucfirst($action ?? '')); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        
-                        <div class="col-md-3">
-                            <label class="form-label">Dari Tanggal</label>
-                            <input type="date" name="date_from" class="form-control" 
-                                   value="<?php echo isset($_GET['date_from']) ? htmlspecialchars($_GET['date_from']) : ''; ?>">
-                        </div>
-                        
-                        <div class="col-md-3">
-                            <label class="form-label">Sampai Tanggal</label>
-                            <input type="date" name="date_to" class="form-control" 
-                                   value="<?php echo isset($_GET['date_to']) ? htmlspecialchars($_GET['date_to']) : ''; ?>">
-                        </div>
-                        
-                        <div class="col-md-3 d-flex align-items-end">
-                            <button type="submit" class="btn btn-primary w-100 me-2">
+            <!-- Filter Form -->
+            <div class="filter-card">
+                <form method="GET" class="row g-3">
+                    <input type="hidden" name="id" value="<?php echo $admin_id; ?>">
+                    
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Jenis Aksi</label>
+                        <select name="action" class="form-select">
+                            <option value="">Semua Aksi</option>
+                            <?php foreach(($distinct_actions ?? []) as $action): ?>
+                                <option value="<?php echo htmlspecialchars($action ?? ''); ?>" 
+                                    <?php echo isset($_GET['action']) && $_GET['action'] == $action ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars(ucfirst($action ?? '')); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Dari Tanggal</label>
+                        <input type="date" name="date_from" class="form-control" 
+                               value="<?php echo isset($_GET['date_from']) ? htmlspecialchars($_GET['date_from']) : ''; ?>">
+                    </div>
+                    
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Sampai Tanggal</label>
+                        <input type="date" name="date_to" class="form-control" 
+                               value="<?php echo isset($_GET['date_to']) ? htmlspecialchars($_GET['date_to']) : ''; ?>">
+                    </div>
+                    
+                    <div class="col-12 col-md-3 d-flex align-items-end">
+                        <div class="d-flex w-100 gap-2">
+                            <button type="submit" class="btn btn-primary flex-grow-1">
                                 <i class="fas fa-filter me-2"></i>Filter
                             </button>
                             <a href="?id=<?php echo $admin_id; ?>" class="btn btn-outline-secondary">
                                 <i class="fas fa-redo"></i>
                             </a>
                         </div>
-                    </form>
-                </div>
-
-                <!-- Data Table -->
-                <div class="table-container">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="mb-0">Daftar Log Aktivitas</h6>
-                        <span class="text-muted">
-                            Menampilkan <?php echo count($activity_logs ?? []); ?> dari <?php echo $total_logs ?? 0; ?> log
-                        </span>
                     </div>
-                    
-                    <div class="table-responsive">
-                        <table class="table table-hover" id="activityTable">
-                            <thead>
+                </form>
+            </div>
+
+            <!-- Data Table -->
+            <div class="table-container">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+                    <h6 class="mb-2">Daftar Log Aktivitas</h6>
+                    <span class="text-muted mb-2">
+                        Menampilkan <?php echo count($activity_logs ?? []); ?> dari <?php echo $total_logs ?? 0; ?> log
+                    </span>
+                </div>
+                
+                <div class="table-responsive">
+                    <table class="table table-hover" id="activityTable">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Waktu</th>
+                                <th>Aksi</th>
+                                <th>Deskripsi</th>
+                                <th>IP Address</th>
+                                <th>Device</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if(empty($activity_logs)): ?>
                                 <tr>
-                                    <th>No</th>
-                                    <th>Waktu</th>
-                                    <th>Aksi</th>
-                                    <th>Deskripsi</th>
-                                    <th>IP Address</th>
-                                    <th>Device</th>
+                                    <td colspan="6" class="text-center text-muted py-4">
+                                        <i class="fas fa-inbox fa-3x mb-3"></i><br>
+                                        Tidak ada log aktivitas
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                <?php if(empty($activity_logs)): ?>
-                                    <tr>
-                                        <td colspan="6" class="text-center text-muted py-4">
-                                            <i class="fas fa-inbox fa-3x mb-3"></i><br>
-                                            Tidak ada log aktivitas
-                                        </td>
-                                    </tr>
-                                <?php else: ?>
-                                    <?php $counter = ($page - 1) * $limit + 1; ?>
-                                    <?php foreach($activity_logs as $log): 
-                                        $action_class = '';
-                                        if (stripos($log['action'] ?? '', 'tambah') !== false) $action_class = 'action-badge-tambah';
-                                        elseif (stripos($log['action'] ?? '', 'edit') !== false) $action_class = 'action-badge-edit';
-                                        elseif (stripos($log['action'] ?? '', 'hapus') !== false) $action_class = 'action-badge-hapus';
-                                        elseif (stripos($log['action'] ?? '', 'login') !== false) $action_class = 'action-badge-login';
-                                        else $action_class = 'action-badge-lainnya';
-                                    ?>
-                                    <tr>
-                                        <td><?php echo $counter++; ?></td>
-                                        <td>
-                                            <?php echo date('d/m/Y H:i:s', strtotime($log['created_at'] ?? '')); ?>
-                                            <br>
-                                            <small class="text-muted">
-                                                <?php echo !empty($log['created_at']) ? date('l', strtotime($log['created_at'])) : ''; ?>
-                                            </small>
-                                        </td>
-                                        <td>
-                                            <span class="badge <?php echo $action_class; ?> badge-activity">
-                                                <i class="fas <?php echo getActivityIcon($log['action'] ?? ''); ?> me-1"></i>
-                                                <?php echo htmlspecialchars(ucfirst($log['action'] ?? '')); ?>
-                                            </span>
-                                        </td>
-                                        <td>
+                            <?php else: ?>
+                                <?php $counter = ($page - 1) * $limit + 1; ?>
+                                <?php foreach($activity_logs as $log): 
+                                    $action_class = '';
+                                    if (stripos($log['action'] ?? '', 'tambah') !== false) $action_class = 'action-badge-tambah';
+                                    elseif (stripos($log['action'] ?? '', 'edit') !== false) $action_class = 'action-badge-edit';
+                                    elseif (stripos($log['action'] ?? '', 'hapus') !== false) $action_class = 'action-badge-hapus';
+                                    elseif (stripos($log['action'] ?? '', 'login') !== false) $action_class = 'action-badge-login';
+                                    else $action_class = 'action-badge-lainnya';
+                                ?>
+                                <tr>
+                                    <td><?php echo $counter++; ?></td>
+                                    <td>
+                                        <?php echo date('d/m/Y H:i:s', strtotime($log['created_at'] ?? '')); ?>
+                                        <br>
+                                        <small class="text-muted">
+                                            <?php echo !empty($log['created_at']) ? date('l', strtotime($log['created_at'])) : ''; ?>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <span class="badge <?php echo $action_class; ?> badge-activity">
+                                            <i class="fas <?php echo getActivityIcon($log['action'] ?? ''); ?> me-1"></i>
+                                            <?php echo htmlspecialchars(ucfirst($log['action'] ?? '')); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="d-inline-block text-truncate" style="max-width: 200px;" title="<?php echo htmlspecialchars($log['description'] ?? ''); ?>">
                                             <?php echo htmlspecialchars($log['description'] ?? ''); ?>
-                                        </td>
-                                        <td>
-                                            <code><?php echo htmlspecialchars($log['ip_address'] ?? ''); ?></code>
-                                        </td>
-                                        <td>
-                                            <small class="text-muted">
-                                                <?php 
-                                                $user_agent = $log['user_agent'] ?? '';
-                                                if (stripos($user_agent, 'Windows') !== false) {
-                                                    echo '<i class="fab fa-windows me-1"></i> Windows';
-                                                } elseif (stripos($user_agent, 'Mac') !== false) {
-                                                    echo '<i class="fab fa-apple me-1"></i> Mac';
-                                                } elseif (stripos($user_agent, 'Linux') !== false) {
-                                                    echo '<i class="fab fa-linux me-1"></i> Linux';
-                                                } elseif (stripos($user_agent, 'Android') !== false) {
-                                                    echo '<i class="fab fa-android me-1"></i> Android';
-                                                } elseif (stripos($user_agent, 'iPhone') !== false) {
-                                                    echo '<i class="fas fa-mobile-alt me-1"></i> iPhone';
-                                                } else {
-                                                    echo '<i class="fas fa-desktop me-1"></i> Unknown';
-                                                }
-                                                ?>
-                                            </small>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Pagination -->
-                    <?php if($total_pages > 1): ?>
-                    <nav aria-label="Page navigation" class="mt-4">
-                        <ul class="pagination pagination-custom justify-content-center">
-                            <!-- Previous Page -->
-                            <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                <a class="page-link" 
-                                   href="?id=<?php echo $admin_id; ?>&page=<?php echo $page-1; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
-                                    <i class="fas fa-chevron-left"></i>
-                                </a>
-                            </li>
-                            
-                            <!-- Page Numbers -->
-                            <?php 
-                            $start_page = max(1, $page - 2);
-                            $end_page = min($total_pages, $page + 2);
-                            
-                            if($start_page > 1): ?>
-                                <li class="page-item"><a class="page-link" href="?id=<?php echo $admin_id; ?>&page=1">1</a></li>
-                                <?php if($start_page > 2): ?>
-                                    <li class="page-item disabled"><span class="page-link">...</span></li>
-                                <?php endif; ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <code class="d-inline-block text-truncate" style="max-width: 120px;" title="<?php echo htmlspecialchars($log['ip_address'] ?? ''); ?>">
+                                            <?php echo htmlspecialchars($log['ip_address'] ?? ''); ?>
+                                        </code>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            <?php 
+                                            $user_agent = $log['user_agent'] ?? '';
+                                            if (stripos($user_agent, 'Windows') !== false) {
+                                                echo '<i class="fab fa-windows me-1"></i> Windows';
+                                            } elseif (stripos($user_agent, 'Mac') !== false) {
+                                                echo '<i class="fab fa-apple me-1"></i> Mac';
+                                            } elseif (stripos($user_agent, 'Linux') !== false) {
+                                                echo '<i class="fab fa-linux me-1"></i> Linux';
+                                            } elseif (stripos($user_agent, 'Android') !== false) {
+                                                echo '<i class="fab fa-android me-1"></i> Android';
+                                            } elseif (stripos($user_agent, 'iPhone') !== false) {
+                                                echo '<i class="fas fa-mobile-alt me-1"></i> iPhone';
+                                            } else {
+                                                echo '<i class="fas fa-desktop me-1"></i> Unknown';
+                                            }
+                                            ?>
+                                        </small>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
                             <?php endif; ?>
-                            
-                            <?php for($i = $start_page; $i <= $end_page; $i++): ?>
-                                <li class="page-item <?php echo $i == $page ? 'active' : ''; ?>">
-                                    <a class="page-link" 
-                                       href="?id=<?php echo $admin_id; ?>&page=<?php echo $i; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
-                                        <?php echo $i; ?>
-                                    </a>
-                                </li>
-                            <?php endfor; ?>
-                            
-                            <?php if($end_page < $total_pages): ?>
-                                <?php if($end_page < $total_pages - 1): ?>
-                                    <li class="page-item disabled"><span class="page-link">...</span></li>
-                                <?php endif; ?>
-                                <li class="page-item"><a class="page-link" href="?id=<?php echo $admin_id; ?>&page=<?php echo $total_pages; ?>"><?php echo $total_pages; ?></a></li>
-                            <?php endif; ?>
-                            
-                            <!-- Next Page -->
-                            <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
-                                <a class="page-link" 
-                                   href="?id=<?php echo $admin_id; ?>&page=<?php echo $page+1; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
-                                    <i class="fas fa-chevron-right"></i>
-                                </a>
-                            </li>
-                        </ul>
-                    </nav>
-                    <?php endif; ?>
+                        </tbody>
+                    </table>
                 </div>
 
-                <!-- Export Options -->
-                <div class="card">
-                    <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-download me-2"></i>Ekspor Data</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="input-group mb-3">
-                                    <span class="input-group-text">Format</span>
-                                    <select class="form-select" id="exportFormat">
-                                        <option value="csv">CSV</option>
-                                        <option value="json">JSON</option>
-                                        <option value="pdf">PDF</option>
-                                    </select>
-                                    <button class="btn btn-success" onclick="exportActivity()">
-                                        <i class="fas fa-download me-2"></i>Ekspor Log
-                                    </button>
-                                </div>
+                <!-- Pagination -->
+                <?php if($total_pages > 1): ?>
+                <nav aria-label="Page navigation" class="mt-4">
+                    <ul class="pagination pagination-custom justify-content-center flex-wrap">
+                        <!-- Previous Page -->
+                        <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
+                            <a class="page-link" 
+                               href="?id=<?php echo $admin_id; ?>&page=<?php echo $page-1; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
+                                <i class="fas fa-chevron-left"></i>
+                            </a>
+                        </li>
+                        
+                        <!-- Page Numbers -->
+                        <?php 
+                        $start_page = max(1, $page - 2);
+                        $end_page = min($total_pages, $page + 2);
+                        
+                        if($start_page > 1): ?>
+                            <li class="page-item"><a class="page-link" href="?id=<?php echo $admin_id; ?>&page=1">1</a></li>
+                            <?php if($start_page > 2): ?>
+                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        
+                        <?php for($i = $start_page; $i <= $end_page; $i++): ?>
+                            <li class="page-item <?php echo $i == $page ? 'active' : ''; ?>">
+                                <a class="page-link" 
+                                   href="?id=<?php echo $admin_id; ?>&page=<?php echo $i; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
+                                    <?php echo $i; ?>
+                                </a>
+                            </li>
+                        <?php endfor; ?>
+                        
+                        <?php if($end_page < $total_pages): ?>
+                            <?php if($end_page < $total_pages - 1): ?>
+                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                            <?php endif; ?>
+                            <li class="page-item"><a class="page-link" href="?id=<?php echo $admin_id; ?>&page=<?php echo $total_pages; ?>"><?php echo $total_pages; ?></a></li>
+                        <?php endif; ?>
+                        
+                        <!-- Next Page -->
+                        <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
+                            <a class="page-link" 
+                               href="?id=<?php echo $admin_id; ?>&page=<?php echo $page+1; ?><?php echo isset($_GET['action']) ? '&action='.$_GET['action'] : ''; ?><?php echo isset($_GET['date_from']) ? '&date_from='.$_GET['date_from'] : ''; ?><?php echo isset($_GET['date_to']) ? '&date_to='.$_GET['date_to'] : ''; ?>">
+                                <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                <?php endif; ?>
+            </div>
+
+            <!-- Export Options -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="fas fa-download me-2"></i>Ekspor Data</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-12 col-md-6 mb-3 mb-md-0">
+                            <div class="input-group">
+                                <span class="input-group-text">Format</span>
+                                <select class="form-select" id="exportFormat">
+                                    <option value="csv">CSV</option>
+                                    <option value="json">JSON</option>
+                                    <option value="pdf">PDF</option>
+                                </select>
+                                <button class="btn btn-success" onclick="exportActivity()">
+                                    <i class="fas fa-download me-2"></i>Ekspor Log
+                                </button>
                             </div>
-                            <div class="col-md-6">
-                                <div class="input-group mb-3">
-                                    <span class="input-group-text">Rentang</span>
-                                    <input type="date" class="form-control" id="exportDateFrom">
-                                    <input type="date" class="form-control" id="exportDateTo">
-                                    <button class="btn btn-outline-primary" onclick="exportCustomRange()">
-                                        <i class="fas fa-calendar-alt me-2"></i>Custom Range
-                                    </button>
-                                </div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <div class="input-group">
+                                <span class="input-group-text">Rentang</span>
+                                <input type="date" class="form-control" id="exportDateFrom">
+                                <input type="date" class="form-control" id="exportDateTo">
+                                <button class="btn btn-outline-primary" onclick="exportCustomRange()">
+                                    <i class="fas fa-calendar-alt me-2"></i>Custom Range
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -814,6 +862,7 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
                     "searching": true,
                     "ordering": true,
                     "info": false,
+                    "responsive": true,
                     "language": {
                         "url": "//cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
                     },
@@ -878,34 +927,6 @@ logAdminAudit($db, $_SESSION['user_id'], $admin_id, 'view_activity', "Viewed act
                 exportActivity();
             } else {
                 alert('Harap pilih rentang tanggal yang valid');
-            }
-        }
-        
-        function toggleMobileSidebar() {
-            const sidebar = document.querySelector('.mobile-sidebar');
-            const overlay = document.querySelector('.mobile-overlay');
-            
-            if (sidebar.style.display === 'block') {
-                sidebar.style.display = 'none';
-                if (overlay) overlay.remove();
-            } else {
-                sidebar.style.display = 'block';
-                // Tambah overlay
-                if (!overlay) {
-                    const overlayDiv = document.createElement('div');
-                    overlayDiv.className = 'mobile-overlay';
-                    overlayDiv.style.cssText = `
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.5);
-                        z-index: 1000;
-                    `;
-                    overlayDiv.onclick = toggleMobileSidebar;
-                    document.body.appendChild(overlayDiv);
-                }
             }
         }
     </script>

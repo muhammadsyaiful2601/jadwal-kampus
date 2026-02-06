@@ -1225,4 +1225,29 @@ function getUserLockoutInfo($db, $user_id) {
         return null;
     }
 }
+// =======================================================
+// SUGGESTIONS FUNCTIONS
+// =======================================================
+
+function getUnreadSuggestionsCount($db) {
+    try {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM suggestions WHERE status = 'pending'");
+        $stmt->execute();
+        return $stmt->fetchColumn();
+    } catch (Exception $e) {
+        error_log("Error counting unread suggestions: " . $e->getMessage());
+        return 0;
+    }
+}
+
+function getAllSuggestionsCount($db) {
+    try {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM suggestions");
+        $stmt->execute();
+        return $stmt->fetchColumn();
+    } catch (Exception $e) {
+        error_log("Error counting all suggestions: " . $e->getMessage());
+        return 0;
+    }
+}
 ?>

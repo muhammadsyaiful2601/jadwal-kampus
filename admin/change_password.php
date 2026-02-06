@@ -98,39 +98,13 @@ $current_user = $stmt->fetch(PDO::FETCH_ASSOC);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        .sidebar {
-            background: linear-gradient(135deg, #2c3e50, #4a6491);
-            color: white;
-            min-height: 100vh;
-            position: fixed;
-            width: 250px;
-            z-index: 1000;
-        }
-        .main-content {
-            margin-left: 250px;
-            padding: 20px;
-            min-height: 100vh;
+        body {
             background-color: #f8f9fa;
         }
         .navbar-custom {
             background: white;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 15px 0;
-        }
-        .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
-            padding: 12px 20px;
-            margin: 5px 10px;
-            border-radius: 10px;
-            transition: all 0.3s;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: rgba(255,255,255,0.1);
-            color: white;
-        }
-        .sidebar .nav-link i {
-            width: 20px;
-            margin-right: 10px;
         }
         .user-avatar {
             width: 40px;
@@ -143,22 +117,9 @@ $current_user = $stmt->fetch(PDO::FETCH_ASSOC);
             color: white;
             font-weight: bold;
         }
-        @media (max-width: 768px) {
-            .sidebar {
-                width: 100%;
-                position: relative;
-                min-height: auto;
-                display: none;
-            }
-            .sidebar.mobile-show {
-                display: block;
-            }
-            .main-content {
-                margin-left: 0;
-            }
-        }
         .content-wrapper {
             padding-top: 20px;
+            padding-bottom: 30px;
         }
         .page-header {
             background: white;
@@ -208,205 +169,245 @@ $current_user = $stmt->fetch(PDO::FETCH_ASSOC);
             background-color: #20c997;
             width: 100%;
         }
+        .container-fluid {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        /* Responsive styles */
+        @media (max-width: 768px) {
+            .page-header {
+                padding: 15px;
+            }
+            .content-wrapper {
+                padding-top: 10px;
+            }
+            .navbar-brand h4 {
+                font-size: 1.2rem;
+            }
+            .btn-group-responsive {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .btn-group-responsive .btn {
+                width: 100%;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .page-header .d-flex {
+                flex-direction: column;
+                gap: 15px;
+            }
+            .page-header .text-end {
+                text-align: left !important;
+            }
+            .stats-card .number {
+                font-size: 1.8rem;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="d-flex">
-
-        <!-- Main Content -->
-        <div class="main-content flex-grow-1">
-            <!-- Navbar -->
-            <nav class="navbar navbar-expand-lg navbar-custom mb-4">
-                <div class="container-fluid">
-                    <button class="navbar-toggler d-md-none" type="button" onclick="toggleMobileSidebar()">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <div class="d-flex align-items-center">
-                        <h4 class="mb-0">Ganti Password</h4>
-                        <?php if($current_user_role !== 'superadmin'): ?>
-                        <span class="badge bg-info ms-2">Mode Terbatas</span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="me-3"><?php echo date('d F Y'); ?></span>
-                        <div class="dropdown">
-                            <button class="btn btn-light dropdown-toggle" type="button" 
-                                    data-bs-toggle="dropdown">
-                                <?php echo htmlspecialchars($current_user['username']); ?>
-                                <?php if($_SESSION['is_last_active'] ?? false): ?>
-                                    <span class="badge bg-warning ms-1" title="Akun aktif terakhir">!</span>
-                                <?php endif; ?>
-                            </button>
-                            <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="profile.php">
-                                    <i class="fas fa-user me-2"></i>Profile
-                                </a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="logout.php">
-                                    <i class="fas fa-sign-out-alt me-2"></i>Logout
-                                </a></li>
-                            </ul>
-                        </div>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom mb-4">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center">
+                <a class="navbar-brand" href="dashboard.php">
+                    <h4 class="mb-0">Ganti Password</h4>
+                </a>
+                <?php if($current_user_role !== 'superadmin'): ?>
+                <span class="badge bg-info ms-2">Mode Terbatas</span>
+                <?php endif; ?>
+            </div>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <div class="d-flex align-items-center ms-auto">
+                    <span class="me-3 d-none d-md-block"><?php echo date('d F Y'); ?></span>
+                    <div class="dropdown">
+                        <button class="btn btn-light dropdown-toggle" type="button" 
+                                data-bs-toggle="dropdown">
+                            <?php echo htmlspecialchars($current_user['username']); ?>
+                            <?php if($_SESSION['is_last_active'] ?? false): ?>
+                                <span class="badge bg-warning ms-1" title="Akun aktif terakhir">!</span>
+                            <?php endif; ?>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="profile.php">
+                                <i class="fas fa-user me-2"></i>Profile
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="logout.php">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
                     </div>
                 </div>
-            </nav>
+            </div>
+        </div>
+    </nav>
 
-            <!-- Content -->
-            <div class="content-wrapper">
-                <!-- Page Header -->
-                <div class="page-header">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="mb-1">Ganti Password</h5>
-                            <p class="text-muted mb-0">
-                                <?php if($target_user_id == $current_user_id): ?>
-                                    Ubah password akun Anda sendiri
-                                <?php else: ?>
-                                    Ubah password untuk user: <strong><?php echo htmlspecialchars($target_user['username']); ?></strong>
-                                <?php endif; ?>
-                            </p>
-                            <small class="text-info">
-                                <i class="fas fa-info-circle"></i> 
-                                Password minimal 6 karakter dan sebaiknya menggunakan kombinasi huruf, angka, dan simbol
-                            </small>
-                        </div>
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <div class="content-wrapper">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="d-flex justify-content-between align-items-center flex-wrap">
+                    <div class="mb-3 mb-md-0">
+                        <h5 class="mb-1">Ganti Password</h5>
+                        <p class="text-muted mb-0">
+                            <?php if($target_user_id == $current_user_id): ?>
+                                Ubah password akun Anda sendiri
+                            <?php else: ?>
+                                Ubah password untuk user: <strong><?php echo htmlspecialchars($target_user['username']); ?></strong>
+                            <?php endif; ?>
+                        </p>
+                        <small class="text-info">
+                            <i class="fas fa-info-circle"></i> 
+                            Password minimal 6 karakter dan sebaiknya menggunakan kombinasi huruf, angka, dan simbol
+                        </small>
+                    </div>
+                    <div class="btn-group-responsive">
                         <a href="manage_users.php" class="btn btn-outline-secondary">
                             <i class="fas fa-arrow-left me-2"></i>Kembali
                         </a>
                     </div>
                 </div>
+            </div>
 
-                <?php echo displayMessage(); ?>
+            <?php echo displayMessage(); ?>
 
-                <!-- Informasi Hak Akses -->
-                <?php if($current_user_role !== 'superadmin' && $target_user_id != $current_user_id): ?>
-                <div class="alert alert-danger mb-3">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    Anda tidak memiliki izin untuk mengubah password admin lain. Hanya superadmin yang dapat melakukannya.
+            <!-- Informasi Hak Akses -->
+            <?php if($current_user_role !== 'superadmin' && $target_user_id != $current_user_id): ?>
+            <div class="alert alert-danger mb-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Anda tidak memiliki izin untuk mengubah password admin lain. Hanya superadmin yang dapat melakukannya.
+            </div>
+            <?php endif; ?>
+
+            <!-- Card Form -->
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">
+                        <i class="fas fa-key me-2"></i>Form Ganti Password
+                    </h6>
                 </div>
-                <?php endif; ?>
-
-                <!-- Card Form -->
-                <div class="card">
-                    <div class="card-header bg-white">
-                        <h6 class="mb-0">
-                            <i class="fas fa-key me-2"></i>Form Ganti Password
-                        </h6>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST" id="passwordForm">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <!-- Informasi Akun -->
-                                    <div class="mb-4">
-                                        <h6>Informasi Akun</h6>
-                                        <div class="d-flex align-items-center mb-3">
-                                            <div class="user-avatar me-3" style="width: 50px; height: 50px;">
-                                                <?php echo strtoupper(substr($target_user['username'], 0, 1)); ?>
-                                            </div>
-                                            <div>
-                                                <h6 class="mb-0"><?php echo htmlspecialchars($target_user['username']); ?></h6>
-                                                <span class="badge bg-<?php echo $target_user['role'] == 'superadmin' ? 'danger' : 'primary'; ?>">
-                                                    <?php echo strtoupper($target_user['role']); ?>
-                                                </span>
-                                                <?php if($target_user_id == $current_user_id): ?>
-                                                    <span class="badge bg-info">Akun Anda</span>
-                                                <?php endif; ?>
-                                            </div>
+                <div class="card-body">
+                    <form method="POST" id="passwordForm">
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <!-- Informasi Akun -->
+                                <div class="mb-4">
+                                    <h6>Informasi Akun</h6>
+                                    <div class="d-flex align-items-center mb-3">
+                                        <div class="user-avatar me-3" style="width: 50px; height: 50px;">
+                                            <?php echo strtoupper(substr($target_user['username'], 0, 1)); ?>
                                         </div>
-                                        
-                                        <?php if($current_user_role === 'superadmin' && $target_user_id != $current_user_id): ?>
-                                        <div class="alert alert-warning">
-                                            <small>
-                                                <i class="fas fa-exclamation-triangle me-1"></i>
-                                                Anda sebagai superadmin sedang mengganti password admin lain.
-                                            </small>
+                                        <div>
+                                            <h6 class="mb-0"><?php echo htmlspecialchars($target_user['username']); ?></h6>
+                                            <span class="badge bg-<?php echo $target_user['role'] == 'superadmin' ? 'danger' : 'primary'; ?>">
+                                                <?php echo strtoupper($target_user['role']); ?>
+                                            </span>
+                                            <?php if($target_user_id == $current_user_id): ?>
+                                                <span class="badge bg-info">Akun Anda</span>
+                                            <?php endif; ?>
                                         </div>
-                                        <?php endif; ?>
                                     </div>
+                                    
+                                    <?php if($current_user_role === 'superadmin' && $target_user_id != $current_user_id): ?>
+                                    <div class="alert alert-warning">
+                                        <small>
+                                            <i class="fas fa-exclamation-triangle me-1"></i>
+                                            Anda sebagai superadmin sedang mengganti password admin lain.
+                                        </small>
+                                    </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            
+                            <div class="col-lg-6">
+                                <!-- Form Password -->
+                                <div class="mb-3">
+                                    <label class="form-label">Password Baru</label>
+                                    <div class="password-input-group">
+                                        <input type="password" name="password" id="password" 
+                                               class="form-control" required minlength="6"
+                                               placeholder="Masukkan password baru">
+                                        <button type="button" class="password-toggle" id="togglePassword">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="password-strength weak" id="passwordStrength"></div>
+                                    <div class="form-text" id="passwordFeedback"></div>
                                 </div>
                                 
-                                <div class="col-md-6">
-                                    <!-- Form Password -->
-                                    <div class="mb-3">
-                                        <label class="form-label">Password Baru</label>
-                                        <div class="password-input-group">
-                                            <input type="password" name="password" id="password" 
-                                                   class="form-control" required minlength="6"
-                                                   placeholder="Masukkan password baru">
-                                            <button type="button" class="password-toggle" id="togglePassword">
-                                                <i class="fas fa-eye"></i>
-                                            </button>
-                                        </div>
-                                        <div class="password-strength weak" id="passwordStrength"></div>
-                                        <div class="form-text" id="passwordFeedback"></div>
-                                    </div>
-                                    
-                                    <div class="mb-3">
-                                        <label class="form-label">Konfirmasi Password</label>
-                                        <div class="password-input-group">
-                                            <input type="password" name="confirm_password" id="confirm_password" 
-                                                   class="form-control" required minlength="6"
-                                                   placeholder="Ulangi password baru">
-                                            <button type="button" class="password-toggle" id="toggleConfirmPassword">
-                                                <i class="fas fa-eye"></i>
-                                            </button>
-                                        </div>
-                                        <div class="form-text" id="confirmFeedback"></div>
-                                    </div>
-                                    
-                                    <!-- Persyaratan Password -->
-                                    <div class="mb-4">
-                                        <small class="text-muted">Persyaratan Password:</small>
-                                        <ul class="small text-muted mb-0">
-                                            <li id="reqLength">Minimal 6 karakter</li>
-                                            <li id="reqUppercase">Mengandung huruf besar</li>
-                                            <li id="reqLowercase">Mengandung huruf kecil</li>
-                                            <li id="reqNumber">Mengandung angka</li>
-                                            <li id="reqMatch">Password cocok</li>
-                                        </ul>
-                                    </div>
-                                    
-                                    <div class="d-flex gap-2">
-                                        <button type="submit" name="change_password" class="btn btn-primary">
-                                            <i class="fas fa-save me-2"></i>Simpan Password
+                                <div class="mb-3">
+                                    <label class="form-label">Konfirmasi Password</label>
+                                    <div class="password-input-group">
+                                        <input type="password" name="confirm_password" id="confirm_password" 
+                                               class="form-control" required minlength="6"
+                                               placeholder="Ulangi password baru">
+                                        <button type="button" class="password-toggle" id="toggleConfirmPassword">
+                                            <i class="fas fa-eye"></i>
                                         </button>
-                                        <a href="manage_users.php" class="btn btn-outline-secondary">
-                                            Batal
-                                        </a>
                                     </div>
+                                    <div class="form-text" id="confirmFeedback"></div>
+                                </div>
+                                
+                                <!-- Persyaratan Password -->
+                                <div class="mb-4">
+                                    <small class="text-muted">Persyaratan Password:</small>
+                                    <ul class="small text-muted mb-0">
+                                        <li id="reqLength">Minimal 6 karakter</li>
+                                        <li id="reqUppercase">Mengandung huruf besar</li>
+                                        <li id="reqLowercase">Mengandung huruf kecil</li>
+                                        <li id="reqNumber">Mengandung angka</li>
+                                        <li id="reqMatch">Password cocok</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button type="submit" name="change_password" class="btn btn-primary">
+                                        <i class="fas fa-save me-2"></i>Simpan Password
+                                    </button>
+                                    <a href="manage_users.php" class="btn btn-outline-secondary">
+                                        Batal
+                                    </a>
                                 </div>
                             </div>
-                        </form>
-                    </div>
+                        </div>
+                    </form>
                 </div>
-                
-                <!-- Tips Keamanan -->
-                <div class="card mt-3">
-                    <div class="card-header bg-white">
-                        <h6 class="mb-0">
-                            <i class="fas fa-shield-alt me-2"></i>Tips Keamanan Password
-                        </h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="d-flex align-items-center mb-2">
-                                    <i class="fas fa-check-circle text-success me-2"></i>
-                                    <span>Gunakan password yang unik</span>
-                                </div>
+            </div>
+            
+            <!-- Tips Keamanan -->
+            <div class="card mt-3">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0">
+                        <i class="fas fa-shield-alt me-2"></i>Tips Keamanan Password
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <span>Gunakan password yang unik</span>
                             </div>
-                            <div class="col-md-4">
-                                <div class="d-flex align-items-center mb-2">
-                                    <i class="fas fa-check-circle text-success me-2"></i>
-                                    <span>Kombinasikan huruf, angka, dan simbol</span>
-                                </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <span>Kombinasikan huruf, angka, dan simbol</span>
                             </div>
-                            <div class="col-md-4">
-                                <div class="d-flex align-items-center mb-2">
-                                    <i class="fas fa-check-circle text-success me-2"></i>
-                                    <span>Jangan gunakan informasi pribadi</span>
-                                </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <span>Jangan gunakan informasi pribadi</span>
                             </div>
                         </div>
                     </div>
@@ -576,34 +577,6 @@ $current_user = $stmt->fetch(PDO::FETCH_ASSOC);
                 return true;
             });
         });
-        
-        function toggleMobileSidebar() {
-            const sidebar = document.querySelector('.mobile-sidebar');
-            const overlay = document.querySelector('.mobile-overlay');
-            
-            if (sidebar.style.display === 'block') {
-                sidebar.style.display = 'none';
-                if (overlay) overlay.remove();
-            } else {
-                sidebar.style.display = 'block';
-                // Tambah overlay
-                if (!overlay) {
-                    const overlayDiv = document.createElement('div');
-                    overlayDiv.className = 'mobile-overlay';
-                    overlayDiv.style.cssText = `
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.5);
-                        z-index: 1000;
-                    `;
-                    overlayDiv.onclick = toggleMobileSidebar;
-                    document.body.appendChild(overlayDiv);
-                }
-            }
-        }
     </script>
 </body>
 </html>

@@ -858,6 +858,51 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             box-shadow: 0 0 15px rgba(67, 97, 238, 0.2);
         }
         
+        /* Kritik & Saran Modal */
+        #suggestionModal .modal-content {
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+        
+        #suggestionModal .modal-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+        }
+        
+        #suggestionModal .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
+        }
+        
+        /* Navbar Notifications */
+        .nav-link .badge {
+            font-size: 0.6rem;
+            padding: 0.25em 0.5em;
+        }
+        
+        /* Kritik & Saran Button */
+        .suggestion-btn {
+            background: linear-gradient(135deg, #f72585, #b5179e);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 12px 25px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(247, 37, 133, 0.3);
+        }
+        
+        .suggestion-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(247, 37, 133, 0.4);
+            color: white;
+        }
+        
+        .suggestion-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        /* Responsive adjustments */
         @media (max-width: 768px) {
             .desktop-header {
                 display: none !important;
@@ -923,6 +968,20 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             .current-filter-info {
                 font-size: 0.9rem;
                 padding: 8px;
+            }
+            
+            #suggestionModal .modal-dialog {
+                margin: 10px;
+            }
+            
+            .nav-link .badge {
+                font-size: 0.5rem;
+                padding: 0.2em 0.4em;
+            }
+            
+            .suggestion-btn {
+                padding: 10px 20px;
+                font-size: 14px;
             }
         }
         
@@ -1736,6 +1795,18 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     </p>
                 </div>
             </div>
+            
+            <!-- Kritik & Saran Link di Footer -->
+            <div class="text-center mt-4">
+                <button class="btn suggestion-btn mb-3" data-bs-toggle="modal" data-bs-target="#suggestionModal">
+                    <i class="fas fa-comment-dots me-2"></i> Beri Kritik & Saran
+                </button>
+                <p class="text-light opacity-75 mt-2 small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Sampaikan masukan Anda untuk perbaikan sistem
+                </p>
+            </div>
+            
             <hr class="my-4 bg-light">
             <div class="text-center">
                 <p class="mb-2">
@@ -1771,6 +1842,65 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                         <i class="fas fa-times me-2"></i> Tutup
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Kritik & Saran -->
+    <div class="modal fade" id="suggestionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-comment-dots me-2"></i> Kritik & Saran
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="submit_suggestion.php" id="suggestionForm">
+                    <div class="modal-body p-4">
+                        <p class="text-muted mb-4">
+                            Sampaikan kritik dan saran Anda untuk perbaikan sistem jadwal kuliah. 
+                            Semua masukan akan sangat berarti bagi kami.
+                        </p>
+                        
+                        <div class="mb-3">
+                            <label for="suggestionName" class="form-label">Nama <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="suggestionName" name="name" 
+                                   placeholder="Masukkan nama Anda" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="suggestionEmail" class="form-label">Email (opsional)</label>
+                            <input type="email" class="form-control" id="suggestionEmail" name="email" 
+                                   placeholder="nama@email.com">
+                            <small class="text-muted">Email hanya digunakan untuk follow up jika diperlukan</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="suggestionMessage" class="form-label">Kritik & Saran <span class="text-danger">*</span></label>
+                            <textarea class="form-control" id="suggestionMessage" name="message" 
+                                      rows="5" placeholder="Tuliskan kritik dan saran Anda di sini..." 
+                                      required></textarea>
+                            <small class="text-muted">Minimal 10 karakter</small>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <small>
+                                Kritik dan saran Anda akan langsung masuk ke sistem dan dapat dilihat oleh admin.
+                                Tidak perlu login untuk mengirimkan kritik dan saran.
+                            </small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-2"></i> Batal
+                        </button>
+                        <button type="submit" class="btn btn-primary" id="submitSuggestionBtn">
+                            <i class="fas fa-paper-plane me-2"></i> Kirim
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -2071,6 +2201,83 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             if (window.countdownInterval) {
                 clearInterval(window.countdownInterval);
             }
+        });
+        
+        // Handle Kritik & Saran Form
+        $('#suggestionForm').on('submit', function(e) {
+            e.preventDefault();
+            
+            const submitBtn = $('#submitSuggestionBtn');
+            const originalText = submitBtn.html();
+            
+            // Validasi manual
+            const name = $('#suggestionName').val().trim();
+            const message = $('#suggestionMessage').val().trim();
+            
+            if (name.length < 2) {
+                alert('Nama minimal 2 karakter');
+                $('#suggestionName').focus();
+                return;
+            }
+            
+            if (message.length < 10) {
+                alert('Pesan minimal 10 karakter');
+                $('#suggestionMessage').focus();
+                return;
+            }
+            
+            // Disable button and show loading
+            submitBtn.prop('disabled', true);
+            submitBtn.html('<i class="fas fa-spinner fa-spin me-2"></i> Mengirim...');
+            
+            $.ajax({
+                url: 'submit_suggestion.php',
+                type: 'POST',
+                data: $(this).serialize(),
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Show success message
+                        alert(response.message);
+                        // Close modal
+                        $('#suggestionModal').modal('hide');
+                        // Reset form
+                        $('#suggestionForm')[0].reset();
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                },
+                error: function() {
+                    alert('Terjadi kesalahan koneksi. Silakan coba lagi.');
+                },
+                complete: function() {
+                    // Re-enable button
+                    submitBtn.prop('disabled', false);
+                    submitBtn.html(originalText);
+                }
+            });
+        });
+
+        // Form validation
+        $('#suggestionMessage').on('input', function() {
+            const message = $(this).val();
+            const minLength = 10;
+            
+            if (message.length < minLength && message.length > 0) {
+                $(this).addClass('is-invalid');
+                $(this).removeClass('is-valid');
+            } else if (message.length >= minLength) {
+                $(this).removeClass('is-invalid');
+                $(this).addClass('is-valid');
+            } else {
+                $(this).removeClass('is-invalid is-valid');
+            }
+        });
+        
+        // Auto clear validation on modal close
+        $('#suggestionModal').on('hidden.bs.modal', function() {
+            $('#suggestionForm')[0].reset();
+            $('#suggestionMessage').removeClass('is-invalid is-valid');
         });
     </script>
     

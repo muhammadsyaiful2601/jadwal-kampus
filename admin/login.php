@@ -12,12 +12,6 @@ $stored_username = '';
 $attempts_info = null;
 $show_progress = false;
 
-$database = new Database();
-$db = $database->getConnection();
-
-// PERBAIKAN: Reset semua lockout yang sudah expired sebelum proses login
-cleanupExpiredLockouts($db);
-
 if($_SERVER['REQUEST_METHOD'] == 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
@@ -29,6 +23,9 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
         $error = 'Username dan password harus diisi';
         $stored_username = htmlspecialchars($username);
     } else {
+        $database = new Database();
+        $db = $database->getConnection();
+        
         // Check if account is inactive
         if (isAccountInactive($db, $username)) {
             $inactive_account = true;
@@ -43,7 +40,7 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
             if($stmt->rowCount() > 0) {
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
                 
-                // PERBAIKAN: Cek status lockout real-time dengan reset otomatis
+                // Check real-time lockout status
                 $lockout_result = checkRealTimeLockoutStatus($db, $user['id']);
                 
                 if ($lockout_result !== false) {
@@ -53,12 +50,6 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $error = "Akun '$username' terkunci. Silakan coba lagi dalam {$lockout_formatted_time}";
                     $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
                 } else {
-                    // PERBAIKAN: Pastikan failed_attempts sudah direset sebelum verifikasi password
-                    if ($user['locked_until'] && strtotime($user['locked_until']) <= time()) {
-                        // Reset jika masih ada lockout yang sudah expired
-                        resetLoginAttempts($db, $user['id']);
-                    }
-                    
                     if(password_verify($password, $user['password'])) {
                         // Successful login, reset attempts
                         resetFailedAttempts($db, $user['id']);
@@ -120,6 +111,8 @@ if (isset($_SESSION['inactive_account'])) {
 }
 
 // Get lockout settings for display
+$database = new Database();
+$db = $database->getConnection();
 $lockout_settings = getLockoutSettings($db);
 ?>
 <!DOCTYPE html>
@@ -318,7 +311,7 @@ $lockout_settings = getLockoutSettings($db);
         .attempts-danger { color: #dc3545; }
         .attempts-locked { color: #6c757d; }
         
-        /* Lockout info box - DIUBAH */
+        /* Lockout info box */
         .lockout-info-box {
             background: #f8f9fa;
             border: 1px solid #dee2e6;
@@ -382,13 +375,12 @@ $lockout_settings = getLockoutSettings($db);
                         <p class="mb-0">Sistem Jadwal Kuliah</p>
                     </div>
                     <div class="login-body">
-                        <!-- Lockout Info Box - DIUBAH TEKS: menit menjadi detik -->
+                        <!-- Lockout Info Box -->
                         <div class="lockout-info-box">
                             <h6><i class="fas fa-info-circle"></i> Sistem Keamanan Login:</h6>
                             <ul>
                                 <li>Maksimal <?php echo $lockout_settings['max_login_attempts']; ?> percobaan login</li>
-                                <li>Akun terkunci <?php echo $lockout_settings['lockout_initial_duration']; ?> detik pada percobaan terakhir</li> <!-- DIUBAH: menit -> detik -->
-                                <li>Setelah waktu habis, percobaan direset ke 0</li>
+                                <li>Akun terkunci <?php echo $lockout_settings['lockout_initial_duration']; ?> menit pada percobaan terakhir</li>
                                 <li>Countdown hanya dimulai saat akun terkunci</li>
                             </ul>
                         </div>
@@ -565,7 +557,6 @@ $lockout_settings = getLockoutSettings($db);
         const buttonText = document.getElementById('buttonText');
         const usernameInput = document.getElementById('username');
         const passwordInput = document.getElementById('password');
-        const loginForm = document.getElementById('loginForm');
         
         function formatTime(seconds) {
             if (seconds < 60) {
@@ -583,7 +574,7 @@ $lockout_settings = getLockoutSettings($db);
         
         function updateCountdown() {
             if (lockoutSeconds <= 0) {
-                countdownDisplay.textContent = 'Akun terbuka! Percobaan direset ke 0';
+                countdownDisplay.textContent = 'Akun terbuka!';
                 loginButton.classList.remove('btn-locked');
                 loginButton.classList.add('btn-login');
                 buttonText.textContent = 'Login';
@@ -591,7 +582,7 @@ $lockout_settings = getLockoutSettings($db);
                 passwordInput.classList.remove('input-locked');
                 loginButton.disabled = false;
                 
-                // PERBAIKAN: Auto reload untuk reset form dan reset percobaan
+                // Auto reload to reset form
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
@@ -608,8 +599,8 @@ $lockout_settings = getLockoutSettings($db);
         updateCountdown();
         
         // Prevent submit for locked account
-        loginForm.addEventListener('submit', function(e) {
-            const currentUsername = usernameInput.value;
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const currentUsername = document.getElementById('username').value;
             const lockedUsername = '<?php echo $lockout_username; ?>';
             
             if (currentUsername === lockedUsername && lockoutSeconds > 0) {

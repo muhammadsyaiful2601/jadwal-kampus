@@ -78,39 +78,13 @@ $recent_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        .sidebar {
-            background: linear-gradient(135deg, #2c3e50, #4a6491);
-            color: white;
-            min-height: 100vh;
-            position: fixed;
-            width: 250px;
-            z-index: 1000;
-        }
-        .main-content {
-            margin-left: 250px;
-            padding: 20px;
-            min-height: 100vh;
+        body {
             background-color: #f8f9fa;
         }
         .navbar-custom {
             background: white;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 15px 0;
-        }
-        .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
-            padding: 12px 20px;
-            margin: 5px 10px;
-            border-radius: 10px;
-            transition: all 0.3s;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: rgba(255,255,255,0.1);
-            color: white;
-        }
-        .sidebar .nav-link i {
-            width: 20px;
-            margin-right: 10px;
         }
         .user-avatar {
             width: 40px;
@@ -123,31 +97,9 @@ $recent_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             color: white;
             font-weight: bold;
         }
-        @media (max-width: 768px) {
-            .sidebar {
-                width: 100%;
-                position: relative;
-                min-height: auto;
-                display: none;
-            }
-            .sidebar.mobile-show {
-                display: block;
-            }
-            .main-content {
-                margin-left: 0;
-            }
-            .mobile-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.5);
-                z-index: 999;
-            }
-        }
         .content-wrapper {
             padding-top: 20px;
+            padding-bottom: 30px;
         }
         .page-header {
             background: white;
@@ -181,170 +133,217 @@ $recent_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .badge-admin {
             background-color: #6c757d;
         }
+        .container-fluid {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        /* Responsive styles */
+        @media (max-width: 768px) {
+            .page-header {
+                padding: 15px;
+            }
+            .content-wrapper {
+                padding-top: 10px;
+            }
+            .navbar-brand h4 {
+                font-size: 1.2rem;
+            }
+            .btn-group-responsive {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .btn-group-responsive .btn {
+                width: 100%;
+            }
+            .log-preview {
+                padding: 15px;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .page-header .d-flex {
+                flex-direction: column;
+                gap: 15px;
+            }
+            .page-header .text-end {
+                text-align: left !important;
+            }
+            .log-item {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .log-item .text-end {
+                text-align: left !important;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="d-flex">
-
-        <!-- Main Content -->
-        <div class="main-content flex-grow-1">
-            <!-- Navbar -->
-            <nav class="navbar navbar-expand-lg navbar-custom mb-4">
-                <div class="container-fluid">
-                    <button class="navbar-toggler d-md-none" type="button" onclick="toggleMobileSidebar()">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <div class="d-flex align-items-center">
-                        <h4 class="mb-0">Hapus Log Aktivitas</h4>
-                        <span class="badge bg-danger ms-2">Superadmin Only</span>
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="me-3"><?php echo date('d F Y'); ?></span>
-                        <div class="dropdown">
-                            <button class="btn btn-light dropdown-toggle" type="button" 
-                                    data-bs-toggle="dropdown">
-                                <?php echo htmlspecialchars($_SESSION['username']); ?>
-                                <span class="badge bg-danger ms-1">Superadmin</span>
-                            </button>
-                            <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="profile.php">
-                                    <i class="fas fa-user me-2"></i>Profile
-                                </a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="logout.php">
-                                    <i class="fas fa-sign-out-alt me-2"></i>Logout
-                                </a></li>
-                            </ul>
-                        </div>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom mb-4">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center">
+                <a class="navbar-brand" href="dashboard.php">
+                    <h4 class="mb-0">Hapus Log Aktivitas</h4>
+                </a>
+                <span class="badge bg-danger ms-2">Superadmin Only</span>
+            </div>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <div class="d-flex align-items-center ms-auto">
+                    <span class="me-3 d-none d-md-block"><?php echo date('d F Y'); ?></span>
+                    <div class="dropdown">
+                        <button class="btn btn-light dropdown-toggle" type="button" 
+                                data-bs-toggle="dropdown">
+                            <?php echo htmlspecialchars($_SESSION['username']); ?>
+                            <span class="badge bg-danger ms-1">Superadmin</span>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="profile.php">
+                                <i class="fas fa-user me-2"></i>Profile
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="logout.php">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
                     </div>
                 </div>
-            </nav>
+            </div>
+        </div>
+    </nav>
 
-            <!-- Content -->
-            <div class="content-wrapper">
-                <!-- Page Header -->
-                <div class="page-header">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="mb-1">Hapus Log Aktivitas</h5>
-                            <p class="text-muted mb-0">Hapus semua catatan aktivitas sistem</p>
-                            <small class="text-danger">
-                                <i class="fas fa-exclamation-triangle"></i> 
-                                Halaman ini hanya dapat diakses oleh Superadmin
-                            </small>
-                        </div>
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <div class="content-wrapper">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="d-flex justify-content-between align-items-center flex-wrap">
+                    <div class="mb-3 mb-md-0">
+                        <h5 class="mb-1">Hapus Log Aktivitas</h5>
+                        <p class="text-muted mb-0">Hapus semua catatan aktivitas sistem</p>
+                        <small class="text-danger">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            Halaman ini hanya dapat diakses oleh Superadmin
+                        </small>
+                    </div>
+                    <div class="btn-group-responsive">
                         <a href="manage_settings.php" class="btn btn-secondary">
                             <i class="fas fa-arrow-left me-2"></i> Kembali ke Pengaturan
                         </a>
                     </div>
                 </div>
+            </div>
 
-                <?php if(isset($_SESSION['message'])): ?>
-                    <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
-                        <?php echo $_SESSION['message']; ?>
-                        <?php unset($_SESSION['message']); ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                <?php endif; ?>
+            <?php if(isset($_SESSION['message'])): ?>
+                <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
+                    <?php echo $_SESSION['message']; ?>
+                    <?php unset($_SESSION['message']); ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+            
+            <?php if(isset($_SESSION['error_message'])): ?>
+                <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+                    <?php echo $_SESSION['error_message']; ?>
+                    <?php unset($_SESSION['error_message']); ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+
+            <!-- Log Preview -->
+            <div class="log-preview mb-4">
+                <h5><i class="fas fa-history me-2"></i> Preview Log Aktivitas</h5>
+                <p class="text-muted mb-3">
+                    Total log yang akan dihapus: <strong><?php echo $total_logs; ?> entri</strong>
+                </p>
                 
-                <?php if(isset($_SESSION['error_message'])): ?>
-                    <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
-                        <?php echo $_SESSION['error_message']; ?>
-                        <?php unset($_SESSION['error_message']); ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                <?php endif; ?>
-
-                <!-- Log Preview -->
-                <div class="log-preview mb-4">
-                    <h5><i class="fas fa-history me-2"></i> Preview Log Aktivitas</h5>
-                    <p class="text-muted mb-3">
-                        Total log yang akan dihapus: <strong><?php echo $total_logs; ?> entri</strong>
-                    </p>
-                    
-                    <?php if($total_logs > 0): ?>
-                        <div class="mb-3">
-                            <h6>5 Log Terbaru:</h6>
-                            <?php foreach($recent_logs as $log): ?>
-                            <div class="log-item">
-                                <div class="d-flex justify-content-between">
-                                    <div>
-                                        <strong><?php echo htmlspecialchars($log['action']); ?></strong>
-                                        <br>
-                                        <small class="text-muted">
-                                            <i class="fas fa-user me-1"></i>
-                                            <?php echo htmlspecialchars($log['username']); ?>
-                                            <span class="badge <?php echo $log['role'] == 'superadmin' ? 'badge-superadmin' : 'badge-admin'; ?> ms-1">
-                                                <?php echo strtoupper($log['role']); ?>
-                                            </span>
-                                        </small>
-                                    </div>
-                                    <div class="text-end">
-                                        <small class="text-muted">
-                                            <i class="far fa-clock me-1"></i>
-                                            <?php echo date('d/m/Y H:i', strtotime($log['created_at'])); ?>
-                                        </small>
-                                        <br>
-                                        <small class="text-muted">
-                                            <i class="fas fa-network-wired me-1"></i>
-                                            <?php echo htmlspecialchars($log['ip_address']); ?>
-                                        </small>
-                                    </div>
+                <?php if($total_logs > 0): ?>
+                    <div class="mb-3">
+                        <h6>5 Log Terbaru:</h6>
+                        <?php foreach($recent_logs as $log): ?>
+                        <div class="log-item">
+                            <div class="d-flex justify-content-between flex-wrap">
+                                <div>
+                                    <strong><?php echo htmlspecialchars($log['action']); ?></strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        <i class="fas fa-user me-1"></i>
+                                        <?php echo htmlspecialchars($log['username']); ?>
+                                        <span class="badge <?php echo $log['role'] == 'superadmin' ? 'badge-superadmin' : 'badge-admin'; ?> ms-1">
+                                            <?php echo strtoupper($log['role']); ?>
+                                        </span>
+                                    </small>
+                                </div>
+                                <div class="text-end">
+                                    <small class="text-muted">
+                                        <i class="far fa-clock me-1"></i>
+                                        <?php echo date('d/m/Y H:i', strtotime($log['created_at'])); ?>
+                                    </small>
+                                    <br>
+                                    <small class="text-muted">
+                                        <i class="fas fa-network-wired me-1"></i>
+                                        <?php echo htmlspecialchars($log['ip_address']); ?>
+                                    </small>
                                 </div>
                             </div>
-                            <?php endforeach; ?>
                         </div>
-                    <?php else: ?>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            Tidak ada log aktivitas yang tersimpan.
-                        </div>
-                    <?php endif; ?>
-                </div>
-
-                <!-- Danger Zone -->
-                <div class="card border-danger">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Peringatan Tinggi!</h5>
+                        <?php endforeach; ?>
                     </div>
-                    <div class="card-body">
-                        <div class="alert alert-danger">
-                            <h6><i class="fas fa-exclamation-circle me-2"></i> PERINGATAN TINGGI!</h6>
-                            <p class="mb-3">Tindakan ini akan menghapus <strong>SELURUH LOG AKTIVITAS</strong> dari sistem.</p>
-                            <ul class="mb-3">
-                                <li>Semua catatan aktivitas admin akan hilang permanen</li>
-                                <li>Tidak dapat dikembalikan (irreversible)</li>
-                                <li>Total data yang akan dihapus: <strong><?php echo $total_logs; ?> entri log</strong></li>
-                                <li>Hanya superadmin yang dapat melakukan aksi ini</li>
-                            </ul>
-                            <p class="mb-0 fw-bold">Log aktivitas penting untuk audit dan keamanan sistem.</p>
+                <?php else: ?>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Tidak ada log aktivitas yang tersimpan.
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Danger Zone -->
+            <div class="card border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Peringatan Tinggi!</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-exclamation-circle me-2"></i> PERINGATAN TINGGI!</h6>
+                        <p class="mb-3">Tindakan ini akan menghapus <strong>SELURUH LOG AKTIVITAS</strong> dari sistem.</p>
+                        <ul class="mb-3">
+                            <li>Semua catatan aktivitas admin akan hilang permanen</li>
+                            <li>Tidak dapat dikembalikan (irreversible)</li>
+                            <li>Total data yang akan dihapus: <strong><?php echo $total_logs; ?> entri log</strong></li>
+                            <li>Hanya superadmin yang dapat melakukan aksi ini</li>
+                        </ul>
+                        <p class="mb-0 fw-bold">Log aktivitas penting untuk audit dan keamanan sistem.</p>
+                    </div>
+                    
+                    <form method="POST">
+                        <div class="mb-4">
+                            <label for="confirm_password" class="form-label fw-bold">
+                                <i class="fas fa-key me-2"></i>Konfirmasi Password Superadmin
+                            </label>
+                            <input type="password" class="form-control form-control-lg" id="confirm_password" 
+                                   name="confirm_password" required 
+                                   placeholder="Masukkan password superadmin Anda untuk konfirmasi">
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Masukkan password akun superadmin Anda untuk mengonfirmasi penghapusan semua log
+                            </div>
                         </div>
                         
-                        <form method="POST">
-                            <div class="mb-4">
-                                <label for="confirm_password" class="form-label fw-bold">
-                                    <i class="fas fa-key me-2"></i>Konfirmasi Password Superadmin
-                                </label>
-                                <input type="password" class="form-control form-control-lg" id="confirm_password" 
-                                       name="confirm_password" required 
-                                       placeholder="Masukkan password superadmin Anda untuk konfirmasi">
-                                <div class="form-text">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    Masukkan password akun superadmin Anda untuk mengonfirmasi penghapusan semua log
-                                </div>
-                            </div>
-                            
-                            <div class="d-flex justify-content-between">
-                                <a href="manage_settings.php" class="btn btn-secondary">
-                                    <i class="fas fa-arrow-left me-2"></i> Kembali
-                                </a>
-                                <button type="submit" name="clear_logs" class="btn btn-danger btn-lg" 
-                                        onclick="return confirmDelete()">
-                                    <i class="fas fa-trash-alt me-2"></i> Ya, Hapus Semua Log
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+                        <div class="d-flex justify-content-between flex-wrap gap-3">
+                            <a href="manage_settings.php" class="btn btn-secondary">
+                                <i class="fas fa-arrow-left me-2"></i> Kembali
+                            </a>
+                            <button type="submit" name="clear_logs" class="btn btn-danger btn-lg" 
+                                    onclick="return confirmDelete()">
+                                <i class="fas fa-trash-alt me-2"></i> Ya, Hapus Semua Log
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -362,34 +361,6 @@ $recent_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             
             return confirm('APAKAH ANDA YAKIN?\n\nTindakan ini akan menghapus SEMUA LOG AKTIVITAS (' + <?php echo $total_logs; ?> + ' entri).\nTindakan ini TIDAK DAPAT DIBATALKAN!');
-        }
-        
-        function toggleMobileSidebar() {
-            const sidebar = document.querySelector('.sidebar');
-            const overlay = document.querySelector('.mobile-overlay');
-            
-            if (sidebar.classList.contains('mobile-show')) {
-                sidebar.classList.remove('mobile-show');
-                if (overlay) overlay.remove();
-            } else {
-                sidebar.classList.add('mobile-show');
-                // Tambah overlay
-                if (!overlay) {
-                    const overlayDiv = document.createElement('div');
-                    overlayDiv.className = 'mobile-overlay';
-                    overlayDiv.style.cssText = `
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.5);
-                        z-index: 999;
-                    `;
-                    overlayDiv.onclick = toggleMobileSidebar;
-                    document.body.appendChild(overlayDiv);
-                }
-            }
         }
     </script>
 </body>

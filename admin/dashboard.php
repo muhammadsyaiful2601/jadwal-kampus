@@ -25,6 +25,17 @@ $stmt = $db->prepare($query);
 $stmt->execute();
 $stats['total_kelas'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
+// Get suggestions stats
+$query = "SELECT COUNT(*) as total FROM suggestions";
+$stmt = $db->prepare($query);
+$stmt->execute();
+$stats['total_saran'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+$query = "SELECT COUNT(*) as pending FROM suggestions WHERE status = 'pending'";
+$stmt = $db->prepare($query);
+$stmt->execute();
+$stats['pending_saran'] = $stmt->fetch(PDO::FETCH_ASSOC)['pending'];
+
 // Get maintenance status
 $query = "SELECT setting_value FROM settings WHERE setting_key = 'maintenance_mode'";
 $stmt = $db->prepare($query);
@@ -165,6 +176,7 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <a class="nav-link" href="manage_users.php">
                     <i class="fas fa-users"></i> Kelola Admin
                 </a>
+                </a>
                 <a class="nav-link" href="reports.php">
                     <i class="fas fa-chart-bar"></i> Laporan
                 </a>
@@ -217,7 +229,7 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </nav>
 
             <!-- Mobile Sidebar -->
- <div class="collapse d-md-none mb-4" id="mobileSidebar">
+            <div class="collapse d-md-none mb-4" id="mobileSidebar">
                 <div class="card">
                     <div class="card-body">  
                         <nav class="nav flex-column">
@@ -300,6 +312,31 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <a href="saran.php" style="text-decoration: none;">
+                        <div class="card card-stat border-danger position-relative">
+                            <div class="maintenance-badge">
+                                <i class="fas fa-comment"></i>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h6 class="text-muted">Kritik & Saran</h6>
+                                        <h2><?php echo $stats['total_saran']; ?></h2>
+                                        <?php if ($stats['pending_saran'] > 0): ?>
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-circle"></i> <?php echo $stats['pending_saran']; ?> baru
+                                        </span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="stat-icon text-danger">
+                                        <i class="fas fa-comments"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
                 </div>
             </div>
 
