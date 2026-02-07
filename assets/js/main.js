@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update UI based on filter state
     updateFilterUI();
     
+    // Optimasi layout untuk mobile
+    optimizeMobileLayout();
+    
     console.log('Initialization complete');
 });
 
@@ -116,6 +119,18 @@ function setupEventDelegation() {
             toggleSidebar();
             return;
         }
+        
+        // Handle card click untuk mobile (optional)
+        const card = e.target.closest('.jadwal-card');
+        if (card && window.innerWidth <= 768) {
+            const detailBtn = card.querySelector('.btn-detail');
+            if (detailBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleDetailButtonClick(detailBtn);
+                return;
+            }
+        }
     });
     
     // Handle keyboard events
@@ -127,27 +142,48 @@ function setupEventDelegation() {
             }
         }
     });
+    
+    // Handle touch events untuk mobile
+    document.addEventListener('touchstart', function(e) {
+        // Add active state to touched elements
+        const target = e.target;
+        if (target.closest('.filter-tab') || target.closest('.btn') || target.closest('.jadwal-card')) {
+            target.closest('.filter-tab, .btn, .jadwal-card').classList.add('touch-active');
+        }
+    }, { passive: true });
+    
+    document.addEventListener('touchend', function(e) {
+        // Remove active state
+        document.querySelectorAll('.touch-active').forEach(el => {
+            el.classList.remove('touch-active');
+        });
+    }, { passive: true });
 }
 
 function handleFilterTabClick(filterTab) {
     const type = filterTab.getAttribute('data-type');
     const value = filterTab.getAttribute('data-value');
     
-    if (type === 'hari') {
-        filterState.hari = value;
-        filterState.semua_hari = false;
-    } else if (type === 'semua_hari') {
-        filterState.semua_hari = true;
-        filterState.hari = null;
-    } else if (type === 'kelas') {
-        filterState.kelas = value;
-        filterState.semua_kelas = false;
-    } else if (type === 'semua_kelas') {
-        filterState.semua_kelas = true;
-        filterState.kelas = null;
-    }
+    // Add loading state
+    filterTab.classList.add('loading');
     
-    applyFilter();
+    setTimeout(() => {
+        if (type === 'hari') {
+            filterState.hari = value;
+            filterState.semua_hari = false;
+        } else if (type === 'semua_hari') {
+            filterState.semua_hari = true;
+            filterState.hari = null;
+        } else if (type === 'kelas') {
+            filterState.kelas = value;
+            filterState.semua_kelas = false;
+        } else if (type === 'semua_kelas') {
+            filterState.semua_kelas = true;
+            filterState.kelas = null;
+        }
+        
+        applyFilter();
+    }, 100);
 }
 
 function handleDetailButtonClick(detailBtn) {
@@ -402,11 +438,55 @@ function applyFilter() {
         };
         localStorage.setItem('jadwalFilter', JSON.stringify(filterData));
     } catch (e) {
-        // Silent fail
         console.error('Error saving filter to localStorage:', e);
     }
     
+    // Tampilkan loading indicator untuk mobile
+    if (window.innerWidth <= 768) {
+        showMobileLoading();
+    }
+    
     window.location.href = 'index.php?' + params.toString();
+}
+
+function showMobileLoading() {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'mobile-loading-overlay';
+    loadingDiv.innerHTML = `
+        <div class="mobile-loading-spinner">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-white">Memuat jadwal...</p>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+    
+    // Add CSS for loading overlay
+    if (!document.querySelector('#mobile-loading-style')) {
+        const style = document.createElement('style');
+        style.id = 'mobile-loading-style';
+        style.textContent = `
+            .mobile-loading-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+                backdrop-filter: blur(3px);
+            }
+            .mobile-loading-spinner {
+                text-align: center;
+                color: white;
+            }
+        `;
+        document.head.appendChild(style);
+    }
 }
 
 function setupAutoRefresh() {
@@ -438,10 +518,12 @@ function setupResponsiveBehavior() {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(function() {
             updateScheduleCardLayout();
+            optimizeMobileLayout();
         }, 250);
     });
     
     updateScheduleCardLayout();
+    optimizeMobileLayout();
 }
 
 function updateScheduleCardLayout() {
@@ -452,8 +534,112 @@ function updateScheduleCardLayout() {
         cards.forEach(card => {
             const body = card.querySelector('.jadwal-body');
             if (body) {
-                body.style.padding = '15px';
+                body.style.padding = '12px';
             }
+            
+            // Optimasi teks untuk mobile
+            const mataKuliah = card.querySelector('.jadwal-mata-kuliah');
+            if (mataKuliah && mataKuliah.textContent.length > 40) {
+                mataKuliah.style.fontSize = '0.9rem';
+            }
+        });
+    }
+}
+
+// FUNGSI OPTIMASI MOBILE
+function optimizeMobileLayout() {
+    if (window.innerWidth <= 768) {
+        console.log('Optimizing mobile layout...');
+        
+        // 1. Optimasi grid jadwal menjadi 2x2
+        const jadwalRows = document.querySelectorAll('.jadwal-section .row:not(.grid-initialized)');
+        jadwalRows.forEach(row => {
+            row.classList.add('grid-initialized');
+            row.style.display = 'grid';
+            row.style.gridTemplateColumns = 'repeat(2, 1fr)';
+            row.style.gap = '10px';
+            row.style.margin = '0';
+            
+            // Reset semua col classes
+            const cols = row.querySelectorAll('[class*="col-"]');
+            cols.forEach(col => {
+                col.className = 'col-mobile-grid';
+                col.style.width = '100%';
+                col.style.maxWidth = '100%';
+                col.style.flex = '0 0 auto';
+                col.style.padding = '0';
+            });
+        });
+        
+        // 2. Optimasi teks yang terlalu panjang
+        const cards = document.querySelectorAll('.jadwal-card');
+        cards.forEach(card => {
+            // Set tinggi minimal
+            card.style.minHeight = '280px';
+            
+            // Optimasi judul mata kuliah
+            const title = card.querySelector('.jadwal-mata-kuliah');
+            if (title && title.textContent.length > 40) {
+                title.style.fontSize = '0.9rem';
+                title.style.lineHeight = '1.3';
+                title.style.minHeight = '36px';
+                title.style.display = '-webkit-box';
+                title.style.webkitLineClamp = '2';
+                title.style.webkitBoxOrient = 'vertical';
+                title.style.overflow = 'hidden';
+                title.style.textOverflow = 'ellipsis';
+            }
+            
+            // Optimasi nama dosen
+            const dosenElements = card.querySelectorAll('.jadwal-info span');
+            dosenElements.forEach(span => {
+                if (span.textContent.length > 20) {
+                    span.style.display = 'inline-block';
+                    span.style.maxWidth = '120px';
+                    span.style.whiteSpace = 'nowrap';
+                    span.style.overflow = 'hidden';
+                    span.style.textOverflow = 'ellipsis';
+                }
+            });
+            
+            // Optimasi button
+            const button = card.querySelector('.btn-detail');
+            if (button) {
+                button.style.fontSize = '0.8rem';
+                button.style.padding = '8px 12px';
+                button.style.marginTop = 'auto';
+            }
+        });
+        
+        // 3. Optimasi current/next schedule
+        const currentNext = document.getElementById('currentNextSection');
+        if (currentNext) {
+            const titles = currentNext.querySelectorAll('h4, h5');
+            titles.forEach(title => {
+                if (window.innerWidth <= 400) {
+                    title.style.fontSize = '0.95rem';
+                } else {
+                    title.style.fontSize = '1.1rem';
+                }
+            });
+        }
+        
+        // 4. Optimasi footer
+        const footer = document.querySelector('.footer');
+        if (footer) {
+            footer.style.padding = '25px 0 20px';
+            
+            const footerTexts = footer.querySelectorAll('p, small');
+            footerTexts.forEach(text => {
+                text.style.fontSize = '0.85rem';
+                text.style.lineHeight = '1.4';
+            });
+        }
+        
+        // 5. Tambahkan touch feedback
+        document.querySelectorAll('.filter-tab, .btn, .jadwal-card').forEach(el => {
+            el.style.cursor = 'pointer';
+            el.style.webkitTapHighlightColor = 'transparent';
         });
     }
 }
@@ -472,14 +658,13 @@ window.toggleSidebar = toggleSidebar;
 window.handleFilterClick = handleFilterTabClick;
 window.applyFilter = applyFilter;
 window.updateFilterUI = updateFilterUI;
+window.optimizeMobileLayout = optimizeMobileLayout;
 
 // Helper functions for current schedule
 function updateCurrentSchedule() {
-    // This function can be expanded to update the current schedule display
     console.log('Updating current schedule...');
 }
 
 function updateScheduleStatus() {
-    // This function can be expanded to update schedule status indicators
     console.log('Updating schedule status...');
 }

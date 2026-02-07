@@ -318,6 +318,13 @@ try {
     error_log("Error mengambil data ruangan: " . $e->getMessage());
 }
 
+// Ambil setting running text
+$running_text_enabled = getSetting($db, 'running_text_enabled', '0');
+$running_text_content = getSetting($db, 'running_text_content', '');
+$running_text_speed = getSetting($db, 'running_text_speed', 'normal');
+$running_text_color = getSetting($db, 'running_text_color', '#ffffff');
+$running_text_bg_color = getSetting($db, 'running_text_bg_color', '#4361ee');
+
 // JavaScript variables untuk default values
 $currentDay = date('N');
 $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
@@ -345,6 +352,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             --danger: #f72585;
             --dark: #1a1a2e;
             --light: #f8f9fa;
+            --blur-intensity: 0.3;
         }
         
         body {
@@ -696,20 +704,130 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             align-items: center;
         }
         
-        /* Responsive Layout */
-        @media (max-width: 768px) {
-            .current-next-section .row {
-                flex-direction: column;
+        /* ==================================================== */
+        /* RUNNING TEXT YANG DIPERBAIKI - KECEPATAN KONSISTEN & SMOOTH */
+        /* ==================================================== */
+        .running-text-section {
+            padding: 5px 0;
+            position: relative;
+            z-index: 5;
+        }
+        
+        .running-text-container {
+            background-color: <?php echo $running_text_bg_color; ?>;
+            color: <?php echo $running_text_color; ?>;
+            padding: 12px 0;
+            margin: 15px 0;
+            overflow: hidden;
+            position: relative;
+            width: 100%;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+
+        .running-text-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 80px;
+            height: 100%;
+            background: linear-gradient(to right, rgba(255,255,255,var(--blur-intensity)), transparent);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .running-text-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 80px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(255,255,255,var(--blur-intensity)), transparent);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .running-text-wrapper {
+            display: flex;
+            width: fit-content;
+            animation: marquee linear infinite;
+            animation-play-state: running;
+            will-change: transform;
+            backface-visibility: hidden;
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
+            -moz-transform: translateZ(0);
+            -ms-transform: translateZ(0);
+            -o-transform: translateZ(0);
+            padding: 0 20px;
+            transform-style: preserve-3d;
+        }
+
+        .running-text-wrapper:hover {
+            animation-play-state: paused;
+        }
+
+        .running-text-item {
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+            padding: 0 40px;
+            flex-shrink: 0;
+        }
+
+        .running-text-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .running-text-content i {
+            font-size: 1.2rem;
+            animation: pulse-icon 2s infinite ease-in-out;
+        }
+
+        /* Animasi utama - KEJARANGAN SAMA untuk desktop dan mobile */
+        @keyframes marquee {
+            0% {
+                transform: translateX(0);
             }
-            
-            .current-next-section .col-md-6 {
-                width: 100%;
-                margin-bottom: 15px;
+            100% {
+                transform: translateX(-50%);
             }
-            
-            .current-jadwal,
-            .next-jadwal {
-                min-height: 250px;
+        }
+
+        @keyframes pulse-icon {
+            0%, 100% { 
+                transform: scale(1); 
+                opacity: 0.9;
+            }
+            50% { 
+                transform: scale(1.1); 
+                opacity: 1;
+            }
+        }
+
+        /* Kecepatan yang KONSISTEN di desktop dan mobile */
+        .running-text-wrapper.slow {
+            animation-duration: 40s;
+        }
+
+        .running-text-wrapper.normal {
+            animation-duration: 25s;
+        }
+
+        .running-text-wrapper.fast {
+            animation-duration: 15s;
+        }
+
+        /* Optimasi untuk browser WebKit (Chrome, Safari) */
+        @media (-webkit-min-device-pixel-ratio: 2) {
+            .running-text-wrapper {
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
             }
         }
         
@@ -902,7 +1020,9 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             transform: translateY(-1px);
         }
         
-        /* Responsive adjustments */
+        /* ==================================================== */
+        /* RESPONSIVE ADJUSTMENTS - DIPERBAIKI */
+        /* ==================================================== */
         @media (max-width: 768px) {
             .desktop-header {
                 display: none !important;
@@ -983,6 +1103,43 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 padding: 10px 20px;
                 font-size: 14px;
             }
+            
+            /* RUNNING TEXT RESPONSIVE - KECEPATAN TETAP SAMA */
+            .running-text-container {
+                padding: 10px 0;
+                margin: 12px 0;
+            }
+            
+            .running-text-container::before,
+            .running-text-container::after {
+                width: 60px;
+            }
+            
+            .running-text-item {
+                padding: 0 25px;
+            }
+            
+            .running-text-content {
+                font-size: 0.95rem;
+                gap: 10px;
+            }
+            
+            .running-text-content i {
+                font-size: 1.1rem;
+            }
+            
+            /* KEJARANGAN SAMA PERSIS DENGAN DESKTOP */
+            .running-text-wrapper.slow {
+                animation-duration: 40s !important;
+            }
+            
+            .running-text-wrapper.normal {
+                animation-duration: 25s !important;
+            }
+            
+            .running-text-wrapper.fast {
+                animation-duration: 15s !important;
+            }
         }
         
         @media (max-width: 576px) {
@@ -1016,6 +1173,20 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 min-width: 40px !important;
                 font-size: 0.8rem;
             }
+            
+            /* RUNNING TEXT MOBILE KECIL */
+            .running-text-content {
+                font-size: 0.9rem;
+                gap: 8px;
+            }
+            
+            .running-text-content i {
+                font-size: 1rem;
+            }
+            
+            .running-text-item {
+                padding: 0 20px;
+            }
         }
         
         /* Print styles */
@@ -1024,7 +1195,8 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             .filter-section,
             .filter-toggle-btn,
             .sidebar-filter,
-            .overlay {
+            .overlay,
+            .running-text-section {
                 display: none !important;
             }
         }
@@ -1326,6 +1498,45 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             </div>
         </div>
     </section>
+
+    <!-- ==================================================== -->
+    <!-- RUNNING TEXT YANG SUDAH DIPERBAIKI -->
+    <!-- ==================================================== -->
+    <?php if ($running_text_enabled == '1' && !empty($running_text_content)): ?>
+    <section class="running-text-section py-1">
+        <div class="container-fluid px-0">
+            <div class="running-text-container">
+                <div class="running-text-wrapper <?php echo $running_text_speed; ?>">
+                    <!-- Duplicate items untuk efek kontinu tanpa jeda -->
+                    <div class="running-text-item">
+                        <div class="running-text-content">
+                            <i class="fas fa-bullhorn"></i>
+                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        </div>
+                    </div>
+                    <div class="running-text-item">
+                        <div class="running-text-content">
+                            <i class="fas fa-bullhorn"></i>
+                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        </div>
+                    </div>
+                    <div class="running-text-item">
+                        <div class="running-text-content">
+                            <i class="fas fa-bullhorn"></i>
+                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        </div>
+                    </div>
+                    <div class="running-text-item">
+                        <div class="running-text-content">
+                            <i class="fas fa-bullhorn"></i>
+                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <?php endif; ?>
 
     <!-- Jadwal Berlangsung/Berikutnya -->
     <div class="current-next-section py-4" id="currentNextSection">
@@ -1914,6 +2125,51 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         const currentDay = <?php echo date('N'); ?>;
         const firstClass = <?php echo json_encode(!empty($kelas_list) ? $kelas_list[0] : 'A1'); ?>;
         
+        // ==================================================== //
+        // OPTIMASI RUNNING TEXT UNTUK KECEPATAN KONSISTEN & SMOOTH
+        // ==================================================== //
+        function optimizeRunningText() {
+            const runningTextWrapper = document.querySelector('.running-text-wrapper');
+            if (!runningTextWrapper) return;
+            
+            // Deteksi performa device
+            const isLowPerfDevice = navigator.hardwareConcurrency < 4 || 
+                                   (navigator.deviceMemory && navigator.deviceMemory < 4);
+            
+            // Sesuaikan blur untuk device rendah
+            if (isLowPerfDevice) {
+                document.documentElement.style.setProperty('--blur-intensity', '0.15');
+            }
+            
+            // Optimasi untuk mobile: pastikan kecepatan sama
+            const wrapper = runningTextWrapper;
+            const speedClass = wrapper.className.includes('slow') ? 'slow' : 
+                              wrapper.className.includes('fast') ? 'fast' : 'normal';
+            
+            // Force the same speed on all devices
+            switch(speedClass) {
+                case 'slow':
+                    wrapper.style.animationDuration = '40s';
+                    break;
+                case 'normal':
+                    wrapper.style.animationDuration = '25s';
+                    break;
+                case 'fast':
+                    wrapper.style.animationDuration = '15s';
+                    break;
+            }
+            
+            // Restart animation untuk memastikan smoothness
+            wrapper.style.animation = 'none';
+            setTimeout(() => {
+                wrapper.style.animation = '';
+                wrapper.style.animationDuration = wrapper.className.includes('slow') ? '40s' : 
+                                                wrapper.className.includes('fast') ? '15s' : '25s';
+                wrapper.style.animationTimingFunction = 'linear';
+                wrapper.style.animationIterationCount = 'infinite';
+            }, 10);
+        }
+        
         // Fungsi untuk menyimpan filter ke localStorage
         function saveFilterToLocalStorage() {
             try {
@@ -2006,6 +2262,16 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         document.addEventListener('DOMContentLoaded', function() {
             // Terapkan filter yang disimpan jika diperlukan
             applySavedFilterIfNeeded();
+            
+            // Optimasi running text
+            optimizeRunningText();
+            
+            // Re-optimize saat resize (untuk mobile orientation change)
+            let resizeTimer;
+            window.addEventListener('resize', function() {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(optimizeRunningText, 250);
+            });
             
             // Initialize Bootstrap tooltips
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));

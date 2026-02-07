@@ -128,6 +128,17 @@ while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 margin-left: 0;
             }
         }
+        /* Running Text Preview */
+        #runningTextPreview {
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+        }
+        #runningTextPreview marquee {
+            width: 100%;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -315,6 +326,89 @@ while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         </div>
                         
                         <div class="mt-4 pt-3 border-top">
+                            <h5 class="mb-4"><i class="fas fa-scroll me-2"></i>Running Text / Marquee</h5>
+                            <div class="row">
+                                <div class="col-md-12 mb-3">
+                                    <div class="form-check form-switch">
+                                        <!-- PERBAIKAN: Tambahkan hidden input untuk nilai 0 -->
+                                        <input type="hidden" name="running_text_enabled" value="0">
+                                        <input class="form-check-input" type="checkbox" name="running_text_enabled" 
+                                               id="runningTextEnabled" value="1" 
+                                               <?php echo ($settings['running_text_enabled'] ?? '0') == '1' ? 'checked' : ''; ?>>
+                                        <label class="form-check-label" for="runningTextEnabled">
+                                            Aktifkan Running Text di Halaman Utama
+                                        </label>
+                                    </div>
+                                    <small class="text-muted">
+                                        Jika diaktifkan, running text akan muncul di bawah filter dan di atas jadwal berlangsung
+                                    </small>
+                                </div>
+                                
+                                <div class="col-md-12 mb-3">
+                                    <label for="runningTextContent">Konten Running Text</label>
+                                    <textarea class="form-control" id="runningTextContent" name="running_text_content" 
+                                              rows="3" placeholder="Masukkan teks yang ingin ditampilkan sebagai running text..."
+                                              ><?php echo htmlspecialchars($settings['running_text_content'] ?? ''); ?></textarea>
+                                    <small class="text-muted">
+                                        Maksimal 500 karakter. Gunakan HTML untuk formatting sederhana
+                                    </small>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <label for="runningTextSpeed">Kecepatan Running Text</label>
+                                    <select class="form-control" id="runningTextSpeed" name="running_text_speed">
+                                        <option value="slow" <?php echo ($settings['running_text_speed'] ?? 'normal') == 'slow' ? 'selected' : ''; ?>>Lambat</option>
+                                        <option value="normal" <?php echo ($settings['running_text_speed'] ?? 'normal') == 'normal' ? 'selected' : ''; ?>>Normal</option>
+                                        <option value="fast" <?php echo ($settings['running_text_speed'] ?? 'normal') == 'fast' ? 'selected' : ''; ?>>Cepat</option>
+                                    </select>
+                                    <small class="text-muted">
+                                        Atur kecepatan animasi running text
+                                    </small>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <label for="runningTextColor">Warna Teks</label>
+                                    <input type="color" class="form-control form-control-color" id="runningTextColor" 
+                                           name="running_text_color" value="<?php echo $settings['running_text_color'] ?? '#ffffff'; ?>" 
+                                           title="Pilih warna teks">
+                                    <small class="text-muted">
+                                        Warna teks running text (default: putih)
+                                    </small>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <label for="runningTextBgColor">Warna Latar</label>
+                                    <input type="color" class="form-control form-control-color" id="runningTextBgColor" 
+                                           name="running_text_bg_color" value="<?php echo $settings['running_text_bg_color'] ?? '#4361ee'; ?>" 
+                                           title="Pilih warna latar">
+                                    <small class="text-muted">
+                                        Warna latar belakang running text (default: biru)
+                                    </small>
+                                </div>
+                                
+                                <div class="col-md-12">
+                                    <div class="card bg-light">
+                                        <div class="card-body">
+                                            <h6 class="card-title">
+                                                <i class="fas fa-eye me-2"></i>Preview Running Text
+                                            </h6>
+                                            <div id="runningTextPreview" class="p-3 rounded" 
+                                                 style="background-color: <?php echo $settings['running_text_bg_color'] ?? '#4361ee'; ?>; 
+                                                        color: <?php echo $settings['running_text_color'] ?? '#ffffff'; ?>;">
+                                                <marquee behavior="scroll" direction="left" class="fw-semibold">
+                                                    <?php echo htmlspecialchars($settings['running_text_content'] ?? 'Selamat datang di Sistem Informasi Jadwal Kuliah'); ?>
+                                                </marquee>
+                                            </div>
+                                            <small class="text-muted mt-2 d-block">
+                                                Tampilan akan disesuaikan dengan preferensi di atas
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-top">
                             <h5 class="mb-4"><i class="fas fa-shield-alt me-2"></i>Pengaturan Keamanan</h5>
                             <div class="row">
                                 <div class="col-md-6">
@@ -397,5 +491,62 @@ while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Real-time preview untuk running text
+        document.addEventListener('DOMContentLoaded', function() {
+            const enabledCheckbox = document.getElementById('runningTextEnabled');
+            const contentTextarea = document.getElementById('runningTextContent');
+            const speedSelect = document.getElementById('runningTextSpeed');
+            const colorPicker = document.getElementById('runningTextColor');
+            const bgColorPicker = document.getElementById('runningTextBgColor');
+            const previewElement = document.getElementById('runningTextPreview');
+            
+            function updatePreview() {
+                const content = contentTextarea.value || 'Teks contoh untuk preview...';
+                const bgColor = bgColorPicker.value;
+                const textColor = colorPicker.value;
+                const speed = speedSelect.value;
+                
+                // Update tampilan preview
+                previewElement.style.backgroundColor = bgColor;
+                previewElement.style.color = textColor;
+                
+                // Update marquee content
+                const marquee = previewElement.querySelector('marquee');
+                if (marquee) {
+                    marquee.innerHTML = content;
+                    // Atur kecepatan
+                    switch(speed) {
+                        case 'slow':
+                            marquee.style.animationDuration = '30s';
+                            break;
+                        case 'normal':
+                            marquee.style.animationDuration = '20s';
+                            break;
+                        case 'fast':
+                            marquee.style.animationDuration = '10s';
+                            break;
+                    }
+                }
+            }
+            
+            // Event listeners
+            [contentTextarea, speedSelect, colorPicker, bgColorPicker].forEach(element => {
+                element.addEventListener('input', updatePreview);
+                element.addEventListener('change', updatePreview);
+            });
+            
+            enabledCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    previewElement.parentElement.style.display = 'block';
+                } else {
+                    previewElement.parentElement.style.display = 'none';
+                }
+            });
+            
+            // Initial preview
+            updatePreview();
+        });
+    </script>
 </body>
 </html>

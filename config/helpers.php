@@ -1250,4 +1250,58 @@ function getAllSuggestionsCount($db) {
         return 0;
     }
 }
+function updateSuggestionToRead($db, $suggestion_id, $user_id) {
+    try {
+        // Cek status saat ini
+        $stmt = $db->prepare("SELECT status, name FROM suggestions WHERE id = ?");
+        $stmt->execute([$suggestion_id]);
+        $suggestion = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$suggestion) {
+            return false;
+        }
+        
+        // Hanya update jika status masih pending
+        if ($suggestion['status'] === 'pending') {
+            $update_query = "UPDATE suggestions SET 
+                            status = 'read',
+                            responded_by = ?,
+                            responded_at = NOW()
+                            WHERE id = ?";
+            
+            $stmt_update = $db->prepare($update_query);
+            $result = $stmt_update->execute([$user_id, $suggestion_id]);
+            
+            if ($result) {
+                // Log activity
+                logActivity($db, $user_id, 'read_suggestion', 
+                           "Membaca saran #{$suggestion_id} dari {$suggestion['name']}");
+            }
+            
+            return $result;
+        }
+        return false;
+    } catch (Exception $e) {
+        error_log("Error updating suggestion to read: " . $e->getMessage());
+        return false;
+    }
+}
+
+function canChangeSuggestionStatus($current_status, $new_status) {
+    // Tidak bisa mengubah dari 'read' atau 'responded' ke 'pending'
+    if (($current_status === 'read' || $current_status === 'responded') && $new_status === 'pending') {
+        return false;
+    }
+    return true;
+}
+
+function getSuggestionStatusBadge($status) {
+    $badges = [
+        'pending' => '<span class="badge badge-pending">Pending</span>',
+        'read' => '<span class="badge badge-read">Sudah Dibaca</span>',
+        'responded' => '<span class="badge badge-responded">Ditanggapi</span>'
+    ];
+    
+    return $badges[$status] ?? '<span class="badge badge-secondary">Unknown</span>';
+}
 ?>

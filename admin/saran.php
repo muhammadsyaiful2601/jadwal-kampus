@@ -85,7 +85,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if ($action === 'update_status') {
         $new_status = $_POST['status'] ?? '';
-        $response = $_POST['response'] ?? '';
+        $response_text = $_POST['response'] ?? '';
+        
+        // Validasi: tidak bisa mengubah dari 'read' atau 'responded' ke 'pending'
+        $stmt = $db->prepare("SELECT status FROM suggestions WHERE id = ?");
+        $stmt->execute([$suggestion_id]);
+        $current_status = $stmt->fetchColumn();
+        
+        if (($current_status === 'read' || $current_status === 'responded') && $new_status === 'pending') {
+            $_SESSION['error'] = "Tidak bisa mengubah status kembali ke 'pending' setelah dibaca.";
+            header("Location: saran.php");
+            exit();
+        }
         
         if (in_array($new_status, ['pending', 'read', 'responded'])) {
             try {
@@ -97,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 WHERE id = ?";
                 $update_params = [
                     $new_status,
-                    $response,
+                    $response_text,
                     $_SESSION['user_id'],
                     $suggestion_id
                 ];
@@ -173,6 +184,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding: 15px 0;
             margin-bottom: 30px;
         }
+        .status-info {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+        }
+        /* Animasi untuk badge status berubah */
+        .badge {
+            transition: all 0.3s ease;
+        }
+        
+        /* Animasi untuk update stats */
+        .stat-card h2 {
+            transition: all 0.5s ease;
+        }
+        
+        .stat-card h2.updated {
+            transform: scale(1.1);
+            color: #198754;
+        }
+        
+        /* Notification styles */
+        #notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+        
+        .notification {
+            min-width: 300px;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -225,7 +268,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="card stat-card">
                     <div class="card-body text-center">
                         <h6 class="text-muted">Total</h6>
-                        <h2 class="mb-0"><?php echo $stats['total']; ?></h2>
+                        <h2 class="mb-0 total-count"><?php echo $stats['total']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -233,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="card stat-card">
                     <div class="card-body text-center">
                         <h6 class="text-muted">Pending</h6>
-                        <h2 class="mb-0 text-warning"><?php echo $stats['pending']; ?></h2>
+                        <h2 class="mb-0 text-warning pending-count"><?php echo $stats['pending']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -241,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="card stat-card">
                     <div class="card-body text-center">
                         <h6 class="text-muted">Sudah Dibaca</h6>
-                        <h2 class="mb-0 text-info"><?php echo $stats['read_count']; ?></h2>
+                        <h2 class="mb-0 text-info read-count"><?php echo $stats['read_count']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -249,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="card stat-card">
                     <div class="card-body text-center">
                         <h6 class="text-muted">Ditanggapi</h6>
-                        <h2 class="mb-0 text-success"><?php echo $stats['responded']; ?></h2>
+                        <h2 class="mb-0 text-success responded-count"><?php echo $stats['responded']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -342,7 +385,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         case 'responded': $badge_class = 'badge-responded'; break;
                                     }
                                     ?>
-                                    <span class="badge <?php echo $badge_class; ?>">
+                                    <span class="badge status-badge <?php echo $badge_class; ?>" data-id="<?php echo $suggestion['id']; ?>">
                                         <?php 
                                         $status_text = [
                                             'pending' => 'Pending',
@@ -358,9 +401,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
-                                        <button type="button" class="btn btn-outline-primary" 
+                                        <button type="button" class="btn btn-outline-primary detail-btn" 
                                                 data-bs-toggle="modal" 
-                                                data-bs-target="#detailModal<?php echo $suggestion['id']; ?>">
+                                                data-bs-target="#detailModal<?php echo $suggestion['id']; ?>"
+                                                data-id="<?php echo $suggestion['id']; ?>"
+                                                data-status="<?php echo $suggestion['status']; ?>">
                                             <i class="fas fa-eye"></i> Detail
                                         </button>
                                         
@@ -385,22 +430,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                             </div>
                                                             <div class="col-md-6">
                                                                 <h6>Status</h6>
-                                                                <form method="POST" class="mb-3">
+                                                                <form method="POST" class="mb-3" id="statusForm<?php echo $suggestion['id']; ?>">
                                                                     <input type="hidden" name="suggestion_id" value="<?php echo $suggestion['id']; ?>">
                                                                     <input type="hidden" name="action" value="update_status">
                                                                     <div class="mb-3">
-                                                                        <select name="status" class="form-select">
-                                                                            <option value="pending" <?php echo $suggestion['status'] === 'pending' ? 'selected' : ''; ?>>Pending</option>
+                                                                        <select name="status" class="form-select" id="statusSelect<?php echo $suggestion['id']; ?>">
+                                                                            <!-- Opsi pending hanya tersedia jika status saat ini pending -->
+                                                                            <?php if ($suggestion['status'] === 'pending'): ?>
+                                                                                <option value="pending" <?php echo $suggestion['status'] === 'pending' ? 'selected' : ''; ?>>Pending</option>
+                                                                            <?php endif; ?>
                                                                             <option value="read" <?php echo $suggestion['status'] === 'read' ? 'selected' : ''; ?>>Sudah Dibaca</option>
                                                                             <option value="responded" <?php echo $suggestion['status'] === 'responded' ? 'selected' : ''; ?>>Ditanggapi</option>
                                                                         </select>
+                                                                        <?php if ($suggestion['status'] !== 'pending'): ?>
+                                                                            <div class="status-info text-muted mt-1">
+                                                                                <i class="fas fa-info-circle"></i> Status tidak bisa dikembalikan ke pending setelah dibaca.
+                                                                            </div>
+                                                                        <?php endif; ?>
                                                                     </div>
                                                                     <div class="mb-3">
                                                                         <label class="form-label">Tanggapan (opsional)</label>
                                                                         <textarea name="response" class="form-control" rows="3" placeholder="Masukkan tanggapan..."><?php echo htmlspecialchars($suggestion['response'] ?? ''); ?></textarea>
                                                                     </div>
                                                                     <div class="d-flex justify-content-between">
-                                                                        <button type="submit" class="btn btn-primary">
+                                                                        <button type="submit" class="btn btn-primary" id="submitBtn<?php echo $suggestion['id']; ?>" <?php echo $suggestion['status'] !== 'pending' ? 'disabled' : ''; ?>>
                                                                             <i class="fas fa-save me-2"></i> Simpan Perubahan
                                                                         </button>
                                                                         <?php if ($_SESSION['role'] === 'superadmin'): ?>
@@ -489,9 +542,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
     <script>
+        // Fungsi untuk menampilkan notifikasi
+        function showNotification(message, type) {
+            // Cek apakah sudah ada notifikasi container
+            let container = document.getElementById('notification-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'notification-container';
+                document.body.appendChild(container);
+            }
+            
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            const notification = document.createElement('div');
+            notification.className = `alert ${alertClass} alert-dismissible fade show notification`;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            container.appendChild(notification);
+            
+            // Auto dismiss setelah 3 detik
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 150);
+            }, 3000);
+        }
+        
+        // Fungsi untuk confirm delete
         function confirmDelete(suggestionId) {
             if (confirm('Apakah Anda yakin ingin menghapus kritik dan saran ini? Tindakan ini tidak dapat dibatalkan.')) {
                 document.getElementById('deleteSuggestionId').value = suggestionId;
@@ -499,15 +578,197 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
+        // Fungsi untuk auto update status via AJAX
+        function autoUpdateStatus(suggestionId, currentStatus, modal) {
+            if (currentStatus !== 'pending') {
+                return;
+            }
+            
+            console.log('Auto updating status for suggestion:', suggestionId);
+            
+            fetch('update_suggestion_status.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=auto_update&suggestion_id=' + suggestionId
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Update UI tanpa refresh halaman
+                    updateUIAfterAutoRead(suggestionId, modal);
+                } else {
+                    console.error('Error from server:', data.message);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+        
+        // Fungsi untuk update UI setelah auto update status
+        function updateUIAfterAutoRead(suggestionId, modal) {
+            console.log('Updating UI for suggestion:', suggestionId);
+            
+            // 1. Update badge di tabel utama
+            const tableRow = document.querySelector(`tr:has(button[data-id="${suggestionId}"])`);
+            if (tableRow) {
+                const badge = tableRow.querySelector('.status-badge[data-id="' + suggestionId + '"]');
+                if (badge) {
+                    badge.className = 'badge status-badge badge-read';
+                    badge.textContent = 'Sudah Dibaca';
+                    console.log('Table badge updated');
+                }
+            }
+            
+            // 2. Update data-status di tombol di tabel
+            const button = document.querySelector(`button[data-id="${suggestionId}"]`);
+            if (button) {
+                button.dataset.status = 'read';
+                console.log('Button status updated');
+            }
+            
+            // 3. Update modal select jika modal tersedia
+            if (modal) {
+                const select = modal.find(`#statusSelect${suggestionId}`);
+                if (select.length) {
+                    // Hapus opsi pending jika ada
+                    const pendingOption = select.find('option[value="pending"]');
+                    if (pendingOption.length) {
+                        pendingOption.remove();
+                    }
+                    
+                    // Set selected ke 'read'
+                    select.val('read');
+                    
+                    // Tambahkan info text jika belum ada
+                    const parentDiv = select.parent();
+                    if (!parentDiv.find('.status-info').length) {
+                        const infoDiv = $('<div class="status-info text-muted mt-1"><i class="fas fa-info-circle"></i> Status tidak bisa dikembalikan ke pending setelah dibaca.</div>');
+                        select.after(infoDiv);
+                    }
+                    
+                    console.log('Modal select updated');
+                }
+                
+                // 4. Disable submit button di modal
+                const submitBtn = modal.find(`#submitBtn${suggestionId}`);
+                if (submitBtn.length) {
+                    submitBtn.prop('disabled', true);
+                    submitBtn.html('<i class="fas fa-save me-2"></i> Status sudah diperbarui');
+                    console.log('Submit button disabled');
+                }
+            }
+            
+            // 5. Update stats secara real-time
+            updateStatsCounters();
+            
+            // Tampilkan notifikasi
+            showNotification('Status berhasil diperbarui menjadi "Sudah Dibaca"', 'success');
+        }
+        
+        // Fungsi untuk update statistik counter
+        function updateStatsCounters() {
+            // Update pending count
+            const pendingCard = document.querySelector('.pending-count');
+            if (pendingCard) {
+                const currentPending = parseInt(pendingCard.textContent);
+                if (currentPending > 0) {
+                    pendingCard.textContent = currentPending - 1;
+                    pendingCard.classList.add('updated');
+                    setTimeout(() => {
+                        pendingCard.classList.remove('updated');
+                    }, 500);
+                }
+            }
+            
+            // Update read count
+            const readCard = document.querySelector('.read-count');
+            if (readCard) {
+                const currentRead = parseInt(readCard.textContent);
+                readCard.textContent = currentRead + 1;
+                readCard.classList.add('updated');
+                setTimeout(() => {
+                    readCard.classList.remove('updated');
+                }, 500);
+            }
+        }
+        
         $(document).ready(function() {
-            // Auto-show modal if there's a message
+            // Auto-show notification if there's a message
             <?php if (isset($_SESSION['message'])): ?>
-            alert("<?php echo $_SESSION['message']; ?>");
+            showNotification("<?php echo $_SESSION['message']; ?>", 'success');
             <?php unset($_SESSION['message']); endif; ?>
             
             <?php if (isset($_SESSION['error'])): ?>
-            alert("<?php echo $_SESSION['error']; ?>");
+            showNotification("<?php echo $_SESSION['error']; ?>", 'danger');
             <?php unset($_SESSION['error']); endif; ?>
+            
+            // Event listener untuk modal show
+            $('.modal').on('show.bs.modal', function (event) {
+                var button = $(event.relatedTarget);
+                var suggestionId = button.data('id');
+                var currentStatus = button.data('status');
+                var modal = $(this);
+                
+                console.log('Modal opened for suggestion:', suggestionId, 'Status:', currentStatus);
+                
+                // Auto update status ke "read" ketika modal dibuka (jika masih pending)
+                if (currentStatus === 'pending') {
+                    autoUpdateStatus(suggestionId, currentStatus, modal);
+                }
+            });
+            
+            // Tambahkan event listener untuk detail button
+            $('.detail-btn').on('click', function() {
+                const suggestionId = $(this).data('id');
+                const currentStatus = $(this).data('status');
+                
+                // Jika status masih pending, update via AJAX
+                if (currentStatus === 'pending') {
+                    // Update status di database via AJAX
+                    $.ajax({
+                        url: 'update_suggestion_status.php',
+                        type: 'POST',
+                        data: {
+                            action: 'auto_update',
+                            suggestion_id: suggestionId
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                // Update UI
+                                const button = $(`button[data-id="${suggestionId}"]`);
+                                const row = button.closest('tr');
+                                
+                                // Update badge
+                                row.find('.status-badge').removeClass('badge-pending').addClass('badge-read').text('Sudah Dibaca');
+                                
+                                // Update button data
+                                button.data('status', 'read');
+                                
+                                // Update stats
+                                updateStatsCounters();
+                                
+                                // Update modal content if it's open
+                                const modal = $(`#detailModal${suggestionId}`);
+                                if (modal.hasClass('show')) {
+                                    // Update select in modal
+                                    const select = modal.find(`#statusSelect${suggestionId}`);
+                                    select.find('option[value="pending"]').remove();
+                                    select.val('read');
+                                    
+                                    // Update submit button
+                                    modal.find(`#submitBtn${suggestionId}`).prop('disabled', true).html('<i class="fas fa-save me-2"></i> Status sudah diperbarui');
+                                }
+                            }
+                        }
+                    });
+                }
+            });
         });
     </script>
 </body>
