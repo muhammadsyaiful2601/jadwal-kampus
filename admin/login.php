@@ -3,6 +3,33 @@ session_start();
 require_once '../config/database.php';
 require_once '../config/helpers.php';
 
+// Cek apakah session expired
+$session_expired = false;
+$expired_username = '';
+if (isset($_SESSION['session_expired'])) {
+    $session_expired = true;
+    $expired_username = $_SESSION['expired_username'] ?? '';
+    unset($_SESSION['session_expired'], $_SESSION['expired_username']);
+}
+
+// Cek parameter expired dari URL
+if (isset($_GET['expired']) && $_GET['expired'] == 1) {
+    $session_expired = true;
+}
+
+// Cek apakah sudah ada superadmin
+$superadmin_exists = false;
+try {
+    $database = new Database();
+    $db_temp = $database->getConnection();
+    $stmt = $db_temp->prepare("SELECT COUNT(*) as count FROM users WHERE role = 'superadmin'");
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $superadmin_exists = ($result['count'] > 0);
+} catch (Exception $e) {
+    $superadmin_exists = false; // Default to false if error
+}
+
 $error = '';
 $lockout_time = 0;
 $inactive_account = false;
@@ -11,13 +38,28 @@ $lockout_formatted_time = '';
 $stored_username = '';
 $attempts_info = null;
 $show_progress = false;
+$multiplier = 1;
 
-if($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
-    
-    // Simpan username untuk ditampilkan kembali
-    $stored_username = htmlspecialchars($username);
+// Token untuk mencegah form resubmission
+$form_token = bin2hex(random_bytes(16));
+if (!isset($_SESSION['form_token'])) {
+    $_SESSION['form_token'] = $form_token;
+}
+
+// Cek jika ini adalah refresh setelah POST
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_SESSION['post_token'])) {
+    if (isset($_POST['form_token']) && $_POST['form_token'] === $_SESSION['post_token']) {
+        // Token valid, proses login
+    } else {
+        $error = 'Refresh terdeteksi. Silakan isi form login kembali.';
+        unset($_SESSION['post_token']);
+        $_POST = array();
+    }
+}
+
+if($_SERVER['REQUEST_METHOD'] == 'POST' && !empty($_POST)) {
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
     
     if(empty($username) || empty($password)) {
         $error = 'Username dan password harus diisi';
@@ -26,11 +68,29 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
         $database = new Database();
         $db = $database->getConnection();
         
-        // Check if account is inactive
-        if (isAccountInactive($db, $username)) {
+        $lockout_message = getLockoutStatusMessage($db, $username);
+        if ($lockout_message) {
+            $lockout_username = $username;
+            $lockout_formatted_time = $lockout_message;
+            $error = "Akun '$username' terkunci. Silakan coba lagi dalam {$lockout_formatted_time}";
+            $stored_username = htmlspecialchars($username);
+            
+            $stmt = $db->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->execute([$username]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($user) {
+                $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
+                $multiplier_info = getLockoutMultiplierInfo($db, $user['id']);
+                if ($multiplier_info) {
+                    $multiplier = $multiplier_info['multiplier'];
+                }
+            }
+        } 
+        else if (isAccountInactive($db, $username)) {
             $inactive_account = true;
             $_SESSION['inactive_account'] = $username;
             $error = 'Akun dinonaktifkan';
+            $stored_username = htmlspecialchars($username);
         } else {
             $query = "SELECT * FROM users WHERE username = :username";
             $stmt = $db->prepare($query);
@@ -40,56 +100,85 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
             if($stmt->rowCount() > 0) {
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
                 
-                // Check real-time lockout status
                 $lockout_result = checkRealTimeLockoutStatus($db, $user['id']);
                 
                 if ($lockout_result !== false) {
                     $lockout_time = $lockout_result;
                     $lockout_username = $username;
                     $lockout_formatted_time = formatLockoutTime($lockout_time);
+                    
+                    $multiplier_info = getLockoutMultiplierInfo($db, $user['id']);
+                    if ($multiplier_info && $multiplier_info['multiplier'] > 1) {
+                        $lockout_formatted_time .= " (Level {$multiplier_info['multiplier']})";
+                        $multiplier = $multiplier_info['multiplier'];
+                    }
+                    
                     $error = "Akun '$username' terkunci. Silakan coba lagi dalam {$lockout_formatted_time}";
                     $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
+                    $stored_username = htmlspecialchars($username);
                 } else {
-                    if(password_verify($password, $user['password'])) {
-                        // Successful login, reset attempts
-                        resetFailedAttempts($db, $user['id']);
-                        resetLoginAttempts($db, $user['id']);
-                        
-                        // Update last login
-                        $updateQuery = "UPDATE users SET last_login = NOW() WHERE id = :id";
-                        $updateStmt = $db->prepare($updateQuery);
-                        $updateStmt->bindParam(':id', $user['id']);
-                        $updateStmt->execute();
-                        
-                        $_SESSION['user_id'] = $user['id'];
-                        $_SESSION['username'] = $user['username'];
-                        $_SESSION['role'] = $user['role'];
-                        
-                        // Log activity
-                        logActivity($db, $user['id'], 'Login', 'Login berhasil');
-                        
-                        header('Location: dashboard.php');
-                        exit();
+                    if (isset($_SESSION['last_login_check']) && 
+                        $_SESSION['last_login_check'] === md5($username . $password) &&
+                        time() - ($_SESSION['last_login_time'] ?? 0) < 3) {
+                        $error = "Refresh terdeteksi. Percobaan login tidak dihitung.";
+                        $stored_username = htmlspecialchars($username);
                     } else {
-                        // Wrong password, handle failed login dengan sistem baru
-                        $result = handleFailedLoginModified($db, $user['id']);
+                        $_SESSION['last_login_check'] = md5($username . $password);
+                        $_SESSION['last_login_time'] = time();
                         
-                        if ($result && $result['locked']) {
-                            $lockout_time = $result['duration'];
-                            $lockout_username = $username;
-                            $lockout_formatted_time = formatLockoutTime($lockout_time);
-                            $error = "Terlalu banyak percobaan gagal. Akun '$username' terkunci selama {$lockout_formatted_time}";
-                            $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
-                        } else {
-                            $attempts_left = $result['attempts_left'] ?? 0;
-                            $is_warning = $result['is_warning'] ?? false;
-                            $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
-                            $show_progress = true;
+                        if(password_verify($password, $user['password'])) {
+                            resetFailedAttempts($db, $user['id']);
+                            resetLoginAttempts($db, $user['id']);
                             
-                            if ($is_warning) {
-                                $error = "Password salah! <strong>Percobaan tersisa: {$attempts_left}</strong>. Akun akan terkunci setelah percobaan terakhir.";
+                            $updateQuery = "UPDATE users SET last_login = NOW() WHERE id = :id";
+                            $updateStmt = $db->prepare($updateQuery);
+                            $updateStmt->bindParam(':id', $user['id']);
+                            $updateStmt->execute();
+                            
+                            $_SESSION['user_id'] = $user['id'];
+                            $_SESSION['username'] = $user['username'];
+                            $_SESSION['role'] = $user['role'];
+                            $_SESSION['CREATED'] = time();
+                            $_SESSION['LAST_ACTIVITY'] = time();
+                            
+                            unset($_SESSION['last_login_check'], $_SESSION['last_login_time']);
+                            
+                            logActivity($db, $user['id'], 'Login', 'Login berhasil');
+                            
+                            header('Location: dashboard.php');
+                            exit();
+                        } else {
+                            $result = handleFailedLoginModified($db, $user['id']);
+                            
+                            if ($result && isset($result['locked']) && $result['locked']) {
+                                $lockout_time = $result['duration'];
+                                $lockout_username = $username;
+                                $lockout_formatted_time = formatLockoutTime($lockout_time);
+                                $multiplier = $result['multiplier'] ?? 1;
+                                
+                                if ($multiplier == 1) {
+                                    $error = "Terlalu banyak percobaan gagal. Akun '$username' terkunci selama {$lockout_formatted_time} (Lockout Pertama)";
+                                } else {
+                                    $error = "Terlalu banyak percobaan gagal. Akun '$username' terkunci selama {$lockout_formatted_time} (Lockout Level {$multiplier})";
+                                }
+                                
+                                $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
+                                $show_progress = true;
+                            } else if ($result && isset($result['is_refresh'])) {
+                                $error = "Refresh terdeteksi. Percobaan login tidak dihitung.";
+                                $stored_username = htmlspecialchars($username);
                             } else {
-                                $error = "Password salah! Percobaan tersisa: {$attempts_left}";
+                                $attempts_left = $result['attempts_left'] ?? 0;
+                                $is_warning = $result['is_warning'] ?? false;
+                                $attempts_info = getRemainingAttemptsInfo($db, $user['id']);
+                                $show_progress = true;
+                                
+                                if ($is_warning) {
+                                    $error = "Password salah! <strong>Percobaan tersisa: {$attempts_left}</strong>. Akun akan terkunci setelah percobaan terakhir.";
+                                } else {
+                                    $error = "Password salah! Percobaan tersisa: {$attempts_left}";
+                                }
+                                $stored_username = htmlspecialchars($username);
                             }
                         }
                     }
@@ -100,20 +189,30 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
     }
+    
+    $_SESSION['post_token'] = bin2hex(random_bytes(16));
 }
 
-// Check if the submitted username is locked
 $is_locked_user = ($lockout_time > 0 && isset($_POST['username']) && $_POST['username'] === $lockout_username);
 
-// Ambil username dari session jika ada (untuk akun dinonaktifkan)
 if (isset($_SESSION['inactive_account'])) {
     $stored_username = htmlspecialchars($_SESSION['inactive_account']);
 }
 
-// Get lockout settings for display
 $database = new Database();
 $db = $database->getConnection();
 $lockout_settings = getLockoutSettings($db);
+
+// Cek gambar admin
+$admin_images = ['admin-avatar.jpg', 'admin-avatar.png', 'admin.jpg', 'admin.png'];
+$admin_image_path = '';
+foreach ($admin_images as $image) {
+    $path = '../../assets/images/' . $image;
+    if (file_exists($path)) {
+        $admin_image_path = $path;
+        break;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -124,227 +223,388 @@ $lockout_settings = getLockoutSettings($db);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             align-items: center;
+            justify-content: center;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
         }
+        
+        /* Animated background elements */
+        .bg-bubble-1, .bg-bubble-2, .bg-bubble-3 {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 0;
+        }
+        
+        .bg-bubble-1 {
+            width: 300px;
+            height: 300px;
+            top: -150px;
+            right: -100px;
+        }
+        
+        .bg-bubble-2 {
+            width: 200px;
+            height: 200px;
+            bottom: -100px;
+            left: -50px;
+        }
+        
+        .bg-bubble-3 {
+            width: 150px;
+            height: 150px;
+            top: 50%;
+            right: 10%;
+        }
+        
         .login-card {
-            background: white;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: var(--glass-shadow);
             overflow: hidden;
             position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 450px;
+            margin: 0 auto;
         }
+        
         .login-header {
-            background: linear-gradient(135deg, #2c3e50, #4a6491);
-            color: white;
-            padding: 30px;
+            padding: 30px 30px 20px;
             text-align: center;
+            position: relative;
+            background: linear-gradient(135deg, rgba(44, 62, 80, 0.9), rgba(74, 100, 145, 0.9));
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
         }
+        
+        .admin-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            margin: 15px auto;
+            display: block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 3px;
+        }
+        
+        .login-header h2 {
+            color: white;
+            font-weight: 700;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .login-header p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+        
         .login-body {
-            padding: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.95);
         }
+        
         .form-control {
-            border-radius: 10px;
-            padding: 12px 20px;
-            border: 2px solid #e0e0e0;
-            transition: all 0.3s;
+            border-radius: 12px;
+            padding: 14px 20px;
+            border: 2px solid #e8f0fe;
+            background: #f8f9fa;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
         }
+        
         .form-control:focus {
             border-color: #667eea;
-            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+            background: white;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+            transform: translateY(-1px);
         }
+        
+        .input-group-text {
+            background: #667eea;
+            border: none;
+            color: white;
+            border-radius: 12px 0 0 12px;
+            padding: 14px 20px;
+        }
+        
         .btn-login {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
             color: white;
-            padding: 12px;
-            border-radius: 10px;
+            padding: 14px;
+            border-radius: 12px;
             font-weight: 600;
-            transition: all 0.3s;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            letter-spacing: 0.5px;
+            position: relative;
+            overflow: hidden;
         }
+        
         .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
         }
+        
+        .btn-login:active {
+            transform: translateY(-1px);
+        }
+        
+        .btn-login::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: 0.5s;
+        }
+        
+        .btn-login:hover::after {
+            left: 100%;
+        }
+        
         .register-link {
             color: #667eea;
             text-decoration: none;
-            font-weight: 500;
-        }
-        .register-link:hover {
-            text-decoration: underline;
+            font-weight: 600;
+            transition: all 0.3s;
+            position: relative;
+            padding: 2px 0;
         }
         
-        /* Popup Styles */
-        .popup-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
+        .register-link:hover {
+            color: #764ba2;
+            text-decoration: none;
         }
-        .popup-content {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        
+        .register-link::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            transition: width 0.3s;
+        }
+        
+        .register-link:hover::after {
+            width: 100%;
+        }
+        
+        .alert {
+            border-radius: 12px;
+            border: none;
+            padding: 15px 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .warning-alert {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .alert-danger {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .lockout-specific {
+            background: linear-gradient(135deg, #ffe6e6, #ffcccc);
+            border: 2px solid #ff9999;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
             text-align: center;
             position: relative;
-            animation: popupIn 0.3s ease-out;
-        }
-        @keyframes popupIn {
-            from {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
-        }
-        .popup-icon {
-            font-size: 4rem;
-            color: #dc3545;
-            margin-bottom: 20px;
-        }
-        .popup-title {
-            color: #dc3545;
-            margin-bottom: 15px;
-        }
-        .popup-message {
-            margin-bottom: 25px;
-            color: #666;
-        }
-        .popup-timer {
-            font-size: 0.9rem;
-            color: #888;
-            margin-top: 15px;
-        }
-        .popup-close {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: none;
-            border: none;
-            font-size: 1.5rem;
-            color: #999;
-            cursor: pointer;
-            transition: color 0.3s;
-        }
-        .popup-close:hover {
-            color: #333;
+            overflow: hidden;
         }
         
-        /* Specific lockout message */
-        .lockout-specific {
-            background: #ffe6e6;
-            border: 1px solid #ff9999;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            text-align: center;
+        .lockout-specific::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #dc3545, #ff6b6b);
         }
+        
         .lockout-specific i {
             color: #dc3545;
-            font-size: 1.5rem;
-            margin-right: 10px;
+            font-size: 2rem;
+            margin-bottom: 10px;
+            display: block;
         }
         
-        /* Style for locked inputs */
-        .input-locked {
-            background-color: #fff3cd;
-            border-color: #ffc107;
-        }
-        .btn-locked {
-            background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-            color: #000;
-        }
-        
-        /* Progress Bar Styles */
         .progress-container {
-            margin: 15px 0;
-            background: #f0f0f0;
+            margin: 20px 0;
+            background: rgba(0,0,0,0.05);
             border-radius: 10px;
             overflow: hidden;
             height: 12px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
         }
         
         .progress-bar {
             height: 100%;
-            transition: width 0.3s ease;
+            transition: width 0.5s ease;
+            position: relative;
+            overflow: hidden;
         }
         
-        .progress-safe { background-color: #28a745; }
-        .progress-caution { background-color: #ffc107; }
-        .progress-warning { background-color: #fd7e14; }
-        .progress-danger { background-color: #dc3545; }
-        .progress-locked { background-color: #6c757d; }
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background-image: linear-gradient(
+                -45deg, 
+                rgba(255, 255, 255, 0.2) 25%, 
+                transparent 25%, 
+                transparent 50%, 
+                rgba(255, 255, 255, 0.2) 50%, 
+                rgba(255, 255, 255, 0.2) 75%, 
+                transparent 75%, 
+                transparent
+            );
+            background-size: 50px 50px;
+            animation: move 2s linear infinite;
+        }
+        
+        @keyframes move {
+            0% { background-position: 0 0; }
+            100% { background-position: 50px 50px; }
+        }
+        
+        .progress-safe { background: linear-gradient(135deg, #28a745, #20c997); }
+        .progress-caution { background: linear-gradient(135deg, #ffc107, #fd7e14); }
+        .progress-warning { background: linear-gradient(135deg, #fd7e14, #e8590c); }
+        .progress-danger { background: linear-gradient(135deg, #dc3545, #c82333); }
+        .progress-locked { background: linear-gradient(135deg, #6c757d, #495057); }
         
         .attempts-info {
-            font-size: 0.85rem;
-            margin-top: 5px;
+            font-size: 0.9rem;
+            margin-top: 8px;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
         
-        .attempts-text {
-            color: #666;
-        }
-        
-        .attempts-count {
-            font-weight: bold;
-        }
-        
-        .attempts-safe { color: #28a745; }
-        .attempts-caution { color: #ffc107; }
-        .attempts-warning { color: #fd7e14; }
-        .attempts-danger { color: #dc3545; }
-        .attempts-locked { color: #6c757d; }
-        
-        /* Lockout info box */
-        .lockout-info-box {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            font-size: 0.9rem;
-        }
-        
-        .lockout-info-box h6 {
-            color: #495057;
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-        
-        .lockout-info-box ul {
-            margin-bottom: 0;
-            padding-left: 20px;
-        }
-        
-        .lockout-info-box li {
-            margin-bottom: 5px;
-            color: #6c757d;
-        }
-        
-        .warning-alert {
-            background-color: #fff3cd;
-            border-color: #ffc107;
+        .session-expired-alert {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border: 2px solid #ffc107;
             color: #856404;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .refresh-notice {
+            background: linear-gradient(135deg, #e7f3ff, #d9ecff);
+            border: 2px solid #b3d7ff;
+            color: #0066cc;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+        }
+        
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+        
+        .input-locked {
+            background: #fff3cd;
+            border-color: #ffc107;
+        }
+        
+        .btn-locked {
+            background: linear-gradient(135deg, #6c757d, #495057);
+            cursor: not-allowed;
+        }
+        
+        .btn-locked:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .lockout-level {
+            font-weight: bold;
+            color: #dc3545;
+            background: rgba(220, 53, 69, 0.1);
+            padding: 3px 10px;
+            border-radius: 20px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .text-muted {
+            color: #6c757d !important;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 576px) {
+            .login-card {
+                margin: 10px;
+            }
+            
+            .login-header {
+                padding: 25px 20px 15px;
+            }
+            
+            .login-body {
+                padding: 25px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Background elements -->
+    <div class="bg-bubble-1"></div>
+    <div class="bg-bubble-2"></div>
+    <div class="bg-bubble-3"></div>
+    
     <!-- Popup for inactive account -->
     <?php if($inactive_account): ?>
     <div class="popup-overlay" id="inactivePopup">
@@ -366,135 +626,165 @@ $lockout_settings = getLockoutSettings($db);
     </div>
     <?php endif; ?>
 
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-6 col-lg-5">
-                <div class="login-card">
-                    <div class="login-header">
-                        <h2><i class="fas fa-calendar-alt"></i> Admin Panel</h2>
-                        <p class="mb-0">Sistem Jadwal Kuliah</p>
-                    </div>
-                    <div class="login-body">
-                        <!-- Lockout Info Box -->
-                        <div class="lockout-info-box">
-                            <h6><i class="fas fa-info-circle"></i> Sistem Keamanan Login:</h6>
-                            <ul>
-                                <li>Maksimal <?php echo $lockout_settings['max_login_attempts']; ?> percobaan login</li>
-                                <li>Akun terkunci <?php echo $lockout_settings['lockout_initial_duration']; ?> menit pada percobaan terakhir</li>
-                                <li>Countdown hanya dimulai saat akun terkunci</li>
-                            </ul>
-                        </div>
-                        
-                        <?php if($is_locked_user): ?>
-                        <div class="lockout-specific">
-                            <i class="fas fa-lock"></i>
-                            <strong>Akun Terkunci!</strong><br>
-                            Akun <strong><?php echo htmlspecialchars($lockout_username); ?></strong> terkunci karena mencapai batas maksimal percobaan.<br>
-                            Akan terbuka dalam: <strong id="countdownDisplay"><?php echo $lockout_formatted_time; ?></strong>
-                        </div>
-                        <?php endif; ?>
-                        
-                        <?php if($show_progress && $attempts_info): ?>
-                        <div class="mb-3">
-                            <div class="progress-container">
-                                <?php 
-                                $status = getProgressiveLockoutStatus($attempts_info);
-                                $width = $attempts_info['percentage'];
-                                ?>
-                                <div class="progress-bar progress-<?php echo $status; ?>" 
-                                     style="width: <?php echo min($width, 100); ?>%"></div>
-                            </div>
-                            <div class="attempts-info">
-                                <span class="attempts-text attempts-<?php echo $status; ?>">
-                                    <?php 
-                                    if ($status === 'locked') {
-                                        echo 'Akun terkunci';
-                                    } else {
-                                        echo "Percobaan: {$attempts_info['failed_attempts']}/{$attempts_info['max_attempts']}";
-                                    }
-                                    ?>
-                                </span>
-                                <span class="attempts-count attempts-<?php echo $status; ?>">
-                                    <?php 
-                                    if ($status === 'locked') {
-                                        echo '🔒';
-                                    } elseif ($status === 'danger') {
-                                        echo '⚠️ ' . $attempts_info['attempts_left'] . ' tersisa';
-                                    } elseif ($status === 'warning') {
-                                        echo '⚠️ ' . $attempts_info['attempts_left'] . ' tersisa';
-                                    } else {
-                                        echo $attempts_info['attempts_left'] . ' percobaan tersisa';
-                                    }
-                                    ?>
-                                </span>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                        
-                        <?php if($error && !$inactive_account && !$is_locked_user): ?>
-                            <div class="alert <?php echo strpos($error, 'akan terkunci') !== false ? 'warning-alert' : 'alert-danger'; ?> 
-                                 alert-dismissible fade show" role="alert">
-                                <?php echo $error; ?>
-                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                            </div>
-                        <?php endif; ?>
-                        
-                        <form method="POST" action="" id="loginForm">
-                            <div class="mb-3">
-                                <label for="username" class="form-label">Username</label>
-                                <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-user"></i></span>
-                                    <input type="text" class="form-control <?php echo $is_locked_user ? 'input-locked' : ''; ?>" 
-                                           id="username" name="username" required autofocus 
-                                           placeholder="Masukkan username"
-                                           value="<?php echo $stored_username; ?>">
-                                </div>
-                            </div>
-                            <div class="mb-4">
-                                <label for="password" class="form-label">Password</label>
-                                <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-lock"></i></span>
-                                    <input type="password" class="form-control <?php echo $is_locked_user ? 'input-locked' : ''; ?>" 
-                                           id="password" name="password" required 
-                                           placeholder="Masukkan password">
-                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn w-100 mb-3 <?php echo $is_locked_user ? 'btn-locked' : 'btn-login'; ?>"
-                                    id="loginButton" <?php echo $is_locked_user ? 'disabled' : ''; ?>>
-                                <i class="fas fa-sign-in-alt"></i> 
-                                <?php if($is_locked_user): ?>
-                                    <span id="buttonText">Akun Terkunci</span>
-                                <?php else: ?>
-                                    Login
-                                <?php endif; ?>
-                            </button>
-                            
-                            <?php if($is_locked_user): ?>
-                            <div class="text-center text-muted small mb-3">
-                                <i class="fas fa-info-circle"></i> 
-                                Anda dapat mencoba akun lain
-                            </div>
-                            <?php endif; ?>
-                            
-                            <div class="text-center mt-4">
-                                <p class="mb-0">
-                                    Hanya untuk admin? 
-                                    <a href="register_superadmin.php" class="register-link">
-                                        Daftar Super Admin
-                                    </a>
-                                </p>
-                                <p class="text-muted small mt-2">
-                                    <i class="fas fa-info-circle"></i> 
-                                    Link pendaftaran hanya bisa diakses sekali
-                                </p>
-                            </div>
-                        </form>
-                    </div>
+    <div class="login-card">
+        <div class="login-header">
+            <h2><i class="fas fa-calendar-alt me-2"></i> Admin Panel</h2>
+            <p class="mb-3">Sistem Jadwal Kuliah</p>
+            
+            <?php if($admin_image_path): ?>
+                <img src="<?php echo $admin_image_path; ?>" alt="Admin" class="admin-avatar">
+            <?php else: ?>
+                <div class="admin-avatar d-flex align-items-center justify-content-center">
+                    <i class="fas fa-user-cog text-white" style="font-size: 2rem;"></i>
+                </div>
+            <?php endif; ?>
+            
+            <p class="mt-2 mb-0"><small>Login untuk mengakses dashboard admin</small></p>
+        </div>
+        <div class="login-body">
+            <!-- Refresh notice -->
+            <?php if(isset($_SESSION['refresh_detected'])): ?>
+            <div class="refresh-notice">
+                <i class="fas fa-sync-alt me-2"></i> 
+                Refresh halaman terdeteksi. Percobaan login tidak dihitung untuk mencegah ketidakadilan.
+            </div>
+            <?php unset($_SESSION['refresh_detected']); ?>
+            <?php endif; ?>
+            
+            <!-- Session expired message -->
+            <?php if($session_expired): ?>
+            <div class="session-expired-alert">
+                <i class="fas fa-clock me-2"></i> 
+                <?php if(!empty($expired_username)): ?>
+                    Sesi untuk <strong><?php echo htmlspecialchars($expired_username); ?></strong> telah habis karena tidak aktif selama 1 jam.
+                <?php else: ?>
+                    Sesi Anda telah habis karena tidak aktif selama 1 jam.
+                <?php endif; ?>
+                <br>Silakan login kembali.
+            </div>
+            <?php endif; ?>
+            
+            <?php if($is_locked_user): ?>
+            <div class="lockout-specific">
+                <i class="fas fa-lock"></i>
+                <strong>Akun Terkunci!</strong><br>
+                Akun <strong><?php echo htmlspecialchars($lockout_username); ?></strong> terkunci karena mencapai batas maksimal percobaan.<br>
+                <?php if($multiplier > 1): ?>
+                    <span class="lockout-level">Level Lockout: <?php echo $multiplier; ?></span><br>
+                <?php endif; ?>
+                Akan terbuka dalam: <strong id="countdownDisplay"><?php echo $lockout_formatted_time; ?></strong>
+            </div>
+            <?php endif; ?>
+            
+            <?php if($show_progress && $attempts_info): ?>
+            <div class="mb-4">
+                <div class="progress-container">
+                    <?php 
+                    $status = getProgressiveLockoutStatus($attempts_info);
+                    $width = $attempts_info['percentage'];
+                    ?>
+                    <div class="progress-bar progress-<?php echo $status; ?>" 
+                         style="width: <?php echo min($width, 100); ?>%"></div>
+                </div>
+                <div class="attempts-info">
+                    <span class="attempts-text attempts-<?php echo $status; ?>">
+                        <?php 
+                        if ($status === 'locked') {
+                            echo '<i class="fas fa-lock me-1"></i> Akun terkunci';
+                        } else {
+                            echo '<i class="fas fa-exclamation-triangle me-1"></i> Percobaan: '.$attempts_info['failed_attempts'].'/'.$attempts_info['max_attempts'];
+                        }
+                        ?>
+                    </span>
+                    <span class="attempts-count attempts-<?php echo $status; ?>">
+                        <?php 
+                        if ($status === 'locked') {
+                            echo '🔒';
+                        } elseif ($status === 'danger') {
+                            echo '⚠️ ' . $attempts_info['attempts_left'] . ' tersisa';
+                        } elseif ($status === 'warning') {
+                            echo '⚠️ ' . $attempts_info['attempts_left'] . ' tersisa';
+                        } else {
+                            echo $attempts_info['attempts_left'] . ' percobaan tersisa';
+                        }
+                        ?>
+                    </span>
                 </div>
             </div>
+            <?php endif; ?>
+            
+            <?php if($error && !$inactive_account && !$is_locked_user && !$session_expired): ?>
+                <div class="alert <?php echo strpos($error, 'akan terkunci') !== false || strpos($error, 'Refresh') !== false ? 'warning-alert' : 'alert-danger'; ?> 
+                     alert-dismissible fade show d-flex align-items-center" role="alert">
+                    <i class="fas fa-exclamation-circle me-3" style="font-size: 1.2rem;"></i>
+                    <div><?php echo $error; ?></div>
+                    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+            
+            <form method="POST" action="" id="loginForm">
+                <input type="hidden" name="form_token" value="<?php echo $_SESSION['form_token']; ?>">
+                
+                <div class="mb-4">
+                    <label for="username" class="form-label">Username</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-user"></i></span>
+                        <input type="text" class="form-control <?php echo $is_locked_user ? 'input-locked' : ''; ?>" 
+                               id="username" name="username" required autofocus 
+                               placeholder="Masukkan username"
+                               value="<?php echo $stored_username; ?>"
+                               onkeydown="clearLockoutStatus()">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                        <input type="password" class="form-control <?php echo $is_locked_user ? 'input-locked' : ''; ?>" 
+                               id="password" name="password" required 
+                               placeholder="Masukkan password">
+                        <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn w-100 mb-4 <?php echo $is_locked_user ? 'btn-locked' : 'btn-login'; ?>"
+                        id="loginButton" <?php echo $is_locked_user ? 'disabled' : ''; ?>>
+                    <i class="fas fa-sign-in-alt me-2"></i> 
+                    <?php if($is_locked_user): ?>
+                        <span id="buttonText">Akun Terkunci</span>
+                    <?php else: ?>
+                        Login ke Dashboard
+                    <?php endif; ?>
+                </button>
+                
+                <?php if($is_locked_user): ?>
+                <div class="text-center text-muted small mb-3">
+                    <i class="fas fa-info-circle me-1"></i> 
+                    Anda dapat mencoba akun lain
+                </div>
+                <?php endif; ?>
+                
+                <div class="text-center mt-4 pt-3 border-top">
+                    <?php if(!$superadmin_exists): ?>
+                    <p class="mb-2">
+                        Belum ada superadmin? 
+                        <a href="register_superadmin.php" class="register-link">
+                            Daftar Super Admin
+                        </a>
+                    </p>
+                    <p class="text-muted small mb-0">
+                        <i class="fas fa-shield-alt me-1"></i> 
+                        Link pendaftaran hanya bisa diakses sekali
+                    </p>
+                    <?php else: ?>
+                    <p class="text-muted small mb-0">
+                        <i class="fas fa-shield-alt me-1"></i> 
+                        Sistem sudah memiliki superadmin
+                    </p>
+                    <?php endif; ?>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -549,6 +839,40 @@ $lockout_settings = getLockoutSettings($db);
         }
         <?php endif; ?>
         
+        // Clear lockout status when user changes username
+        function clearLockoutStatus() {
+            const usernameInput = document.getElementById('username');
+            const currentUsername = usernameInput.value;
+            const lockedUsername = '<?php echo $lockout_username; ?>';
+            
+            if (currentUsername !== lockedUsername) {
+                const loginButton = document.getElementById('loginButton');
+                const passwordInput = document.getElementById('password');
+                
+                if (loginButton.classList.contains('btn-locked')) {
+                    loginButton.classList.remove('btn-locked');
+                    loginButton.classList.add('btn-login');
+                    loginButton.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> Login ke Dashboard';
+                    loginButton.disabled = false;
+                    
+                    usernameInput.classList.remove('input-locked');
+                    passwordInput.classList.remove('input-locked');
+                    
+                    // Hide lockout message if exists
+                    const lockoutMessage = document.querySelector('.lockout-specific');
+                    if (lockoutMessage) {
+                        lockoutMessage.style.display = 'none';
+                    }
+                    
+                    // Hide multiplier warning if exists
+                    const multiplierWarning = document.querySelector('.multiplier-warning');
+                    if (multiplierWarning) {
+                        multiplierWarning.style.display = 'none';
+                    }
+                }
+            }
+        }
+        
         // Countdown for lockout - ONLY when account is locked
         <?php if($is_locked_user && $lockout_time > 0): ?>
         let lockoutSeconds = <?php echo $lockout_time; ?>;
@@ -577,7 +901,7 @@ $lockout_settings = getLockoutSettings($db);
                 countdownDisplay.textContent = 'Akun terbuka!';
                 loginButton.classList.remove('btn-locked');
                 loginButton.classList.add('btn-login');
-                buttonText.textContent = 'Login';
+                loginButton.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> Login ke Dashboard';
                 usernameInput.classList.remove('input-locked');
                 passwordInput.classList.remove('input-locked');
                 loginButton.disabled = false;
@@ -611,37 +935,50 @@ $lockout_settings = getLockoutSettings($db);
         });
         <?php endif; ?>
         
-        // Reset form when user changes username
-        document.getElementById('username').addEventListener('input', function() {
-            const currentUsername = this.value;
-            const lockedUsername = '<?php echo $lockout_username; ?>';
-            
-            if (currentUsername !== lockedUsername) {
-                const loginButton = document.getElementById('loginButton');
-                const usernameInput = document.getElementById('username');
-                const passwordInput = document.getElementById('password');
-                
-                loginButton.classList.remove('btn-locked');
-                loginButton.classList.add('btn-login');
-                loginButton.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
-                loginButton.disabled = false;
-                
-                usernameInput.classList.remove('input-locked');
-                passwordInput.classList.remove('input-locked');
-                
-                // Hide lockout message if exists
-                const lockoutMessage = document.querySelector('.lockout-specific');
-                if (lockoutMessage) {
-                    lockoutMessage.style.display = 'none';
-                }
-                
-                // Hide progress bar if exists
-                const progressBar = document.querySelector('.progress-container');
-                if (progressBar && progressBar.parentElement) {
-                    progressBar.parentElement.style.display = 'none';
-                }
+        // Prevent form resubmission on refresh
+        if (window.history.replaceState) {
+            window.history.replaceState(null, null, window.location.href);
+        }
+        
+        // Auto focus on username field if session expired
+        <?php if($session_expired && empty($stored_username)): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('username').focus();
+        });
+        <?php endif; ?>
+        
+        // Clear session data when leaving page
+        window.addEventListener('beforeunload', function() {
+            // Kirim request untuk clear session data login
+            if (typeof navigator.sendBeacon === 'function') {
+                navigator.sendBeacon('clear_login_session.php');
             }
         });
+        
+        // Add floating animation to background bubbles
+        document.addEventListener('DOMContentLoaded', function() {
+            const bubbles = document.querySelectorAll('.bg-bubble-1, .bg-bubble-2, .bg-bubble-3');
+            
+            bubbles.forEach((bubble, index) => {
+                // Random initial position and animation
+                const duration = 15 + Math.random() * 10;
+                const delay = Math.random() * 5;
+                
+                bubble.style.animation = `float ${duration}s ease-in-out ${delay}s infinite alternate`;
+            });
+        });
+        
+        // Add floating animation keyframes
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes float {
+                0% { transform: translateY(0px) translateX(0px); }
+                33% { transform: translateY(-20px) translateX(10px); }
+                66% { transform: translateY(10px) translateX(-10px); }
+                100% { transform: translateY(-10px) translateX(5px); }
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 </body>
 </html>

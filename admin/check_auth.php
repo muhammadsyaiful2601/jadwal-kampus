@@ -5,10 +5,79 @@
 
 require_once __DIR__ . '/../config/helpers.php';
 
-// Panggil fungsi validasi session
+// =======================================================
+// SESSION TIMEOUT 1 JAM (3600 detik) - DIPINDAHKAN KE ATAS
+// =======================================================
+
+// Set pengaturan session HANYA jika session belum dimulai
+if (session_status() === PHP_SESSION_NONE) {
+    // Set session cookie lifetime ke 1 jam
+    ini_set('session.gc_maxlifetime', 3600);
+    session_set_cookie_params(3600);
+}
+
+// Panggil fungsi validasi session (setelah pengaturan)
 validateSession();
 
-// Cegah akses langsung tanpa login
+// =======================================================
+// CEK SESSION CREATED
+// =======================================================
+
+// Jika session baru dibuat, set waktu awal
+if (!isset($_SESSION['CREATED'])) {
+    $_SESSION['CREATED'] = time();
+} 
+
+// Cek apakah session sudah lebih dari 1 jam
+else if (time() - $_SESSION['CREATED'] > 3600) {
+    // Session sudah expired
+    $username = $_SESSION['username'] ?? 'User';
+    
+    // Hapus semua data session
+    session_unset();
+    session_destroy();
+    
+    // Mulai session baru untuk pesan
+    session_start();
+    $_SESSION['session_expired'] = true;
+    $_SESSION['expired_username'] = $username;
+    
+    // Redirect ke halaman login admin (bukan root index.php)
+    header("Location: login.php?expired=1");
+    exit();
+}
+
+// Cek apakah ada waktu aktivitas terakhir
+if (isset($_SESSION['LAST_ACTIVITY'])) {
+    // Hitung waktu sejak aktivitas terakhir
+    $seconds_inactive = time() - $_SESSION['LAST_ACTIVITY'];
+    
+    // Jika tidak aktif selama lebih dari 1 jam (3600 detik)
+    if ($seconds_inactive > 3600) {
+        // Simpan informasi sebelum menghapus session
+        $username = $_SESSION['username'] ?? 'User';
+        
+        // Hapus semua data session
+        session_unset();
+        session_destroy();
+        
+        // Mulai session baru untuk pesan
+        session_start();
+        $_SESSION['session_expired'] = true;
+        $_SESSION['expired_username'] = $username;
+        
+        // Redirect ke login.php (admin folder) BUKAN ../index.php
+        header("Location: login.php?expired=1");
+        exit();
+    }
+}
+
+// Update waktu aktivitas terakhir ke waktu sekarang
+$_SESSION['LAST_ACTIVITY'] = time();
+
+// =======================================================
+// CEGAH AKSES LANGSUNG TANPA LOGIN
+// =======================================================
 preventDirectAccess();
 
 // Jika tidak ada session login → paksa login
@@ -93,6 +162,13 @@ function isLastActiveAccount($db, $user_id) {
 $_SESSION['is_last_active'] = isLastActiveAccount($db, $_SESSION['user_id']);
 
 // =======================================================
+// GENERATE CSRF TOKEN JIKA BELUM ADA
+// =======================================================
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// =======================================================
 // CEK AKSES BERDASARKAN ROLE & HALAMAN
 // =======================================================
 
@@ -112,5 +188,44 @@ if (in_array($current_page, $superadmin_only_pages) && $_SESSION['role'] !== 'su
     $_SESSION['error_message'] = "Akses ditolak. Hanya superadmin yang dapat mengakses halaman ini.";
     header("Location: dashboard.php");
     exit();
+}
+
+// =======================================================
+// FUNGSI UNTUK MENAMPILKAN WAKTU SESSION YANG TERSISA
+// =======================================================
+function getRemainingSessionTime() {
+    if (!isset($_SESSION['LAST_ACTIVITY'])) {
+        return 3600; // 1 jam default
+    }
+    
+    $seconds_inactive = time() - $_SESSION['LAST_ACTIVITY'];
+    $remaining = 3600 - $seconds_inactive;
+    
+    return max(0, $remaining); // Tidak boleh negatif
+}
+
+// Simpan waktu session tersisa ke session (opsional)
+$_SESSION['session_remaining'] = getRemainingSessionTime();
+
+// =======================================================
+// UPDATE WAKTU SESSION CREATED SETIAP KALI DIAKSES
+// =======================================================
+// Reset waktu session jika sudah 30 menit berlalu dari pembuatan
+if (isset($_SESSION['CREATED']) && (time() - $_SESSION['CREATED'] > 1800)) {
+    // Regenerate session ID setiap 30 menit untuk keamanan
+    session_regenerate_id(true);
+    $_SESSION['CREATED'] = time();
+}
+
+// =======================================================
+// CEK JIKA ADA PARAMETER expired DI URL
+// =======================================================
+if (isset($_GET['expired']) && $_GET['expired'] == 1) {
+    // Hapus parameter dari URL
+    echo '<script>
+        if (window.history.replaceState) {
+            window.history.replaceState(null, null, window.location.pathname);
+        }
+    </script>';
 }
 ?>

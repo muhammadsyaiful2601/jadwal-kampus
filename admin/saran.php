@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'delete' && $_SESSION['role'] === 'superadmin') {
-        // Hanya superadmin yang bisa menghapus
+        // Hanya superadmin yang bisa menghapus satu saran
         try {
             $delete_query = "DELETE FROM suggestions WHERE id = ?";
             $stmt_delete = $db->prepare($delete_query);
@@ -131,6 +131,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Exception $e) {
             $_SESSION['error'] = "Gagal menghapus saran: " . $e->getMessage();
+        }
+    } elseif ($action === 'delete_all' && $_SESSION['role'] === 'superadmin') {
+        // Hanya superadmin yang bisa menghapus semua
+        $confirm = isset($_POST['confirm_delete_all']) && $_POST['confirm_delete_all'] === '1';
+        
+        if ($confirm) {
+            try {
+                $delete_all_query = "DELETE FROM suggestions";
+                $stmt_delete_all = $db->prepare($delete_all_query);
+                if ($stmt_delete_all->execute()) {
+                    $_SESSION['message'] = "Semua saran berhasil dihapus";
+                }
+            } catch (Exception $e) {
+                $_SESSION['error'] = "Gagal menghapus semua saran: " . $e->getMessage();
+            }
+        } else {
+            $_SESSION['error'] = "Konfirmasi penghapusan tidak valid";
         }
     }
     
@@ -189,6 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #666;
             margin-top: 5px;
         }
+        
         /* Animasi untuk badge status berubah */
         .badge {
             transition: all 0.3s ease;
@@ -215,6 +233,127 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .notification {
             min-width: 300px;
             margin-bottom: 10px;
+        }
+        
+        /* Efek untuk pesan yang belum dibaca */
+        .blurred-message {
+            user-select: none;
+            pointer-events: none;
+            filter: blur(4px);
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: inline-block;
+            transition: filter 0.5s ease;
+        }
+        
+        /* Efek untuk pesan yang sudah dibaca */
+        .read-message {
+            filter: blur(0);
+            background-color: transparent;
+        }
+        
+        /* Highlight untuk menarik perhatian */
+        .highlight-unread {
+            background-color: rgba(255, 193, 7, 0.05) !important;
+            border-left: 4px solid #ffc107 !important;
+        }
+        
+        /* Pesan peringatan kecil */
+        .unread-hint {
+            font-size: 11px;
+            background: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-top: 3px;
+            border: 1px solid #ffeaa7;
+        }
+        
+        /* Style untuk badge "BARU" */
+        .badge-new {
+            background: linear-gradient(45deg, #ff0000, #ff6b6b);
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            margin-left: 5px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Fix z-index untuk modal */
+        .modal {
+            z-index: 1060 !important;
+        }
+        
+        .modal-backdrop {
+            z-index: 1050 !important;
+        }
+        
+        /* Animasi untuk menghilangkan blur */
+        .unblur-animation {
+            animation: unblur 0.5s ease forwards;
+        }
+        
+        @keyframes unblur {
+            from { filter: blur(4px); opacity: 0.7; }
+            to { filter: blur(0); opacity: 1; }
+        }
+        
+        /* Tombol hapus semua */
+        .delete-all-alert {
+            border-left: 4px solid #dc3545;
+            animation: pulse-alert 2s infinite;
+        }
+        
+        @keyframes pulse-alert {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+            70% { box-shadow: 0 0 0 5px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+        
+        /* Style untuk konfirmasi hapus semua */
+        #deleteAllConfirm.is-valid {
+            border-color: #198754;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23198754' d='M2.3 6.73L.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
+        }
+        
+        #deleteAllConfirm.is-invalid {
+            border-color: #dc3545;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
+        }
+        
+        /* Style untuk teks konfirmasi acak */
+        .confirmation-display {
+            border: 2px dashed #dc3545;
+            background: linear-gradient(45deg, rgba(255,255,255,0.9), rgba(255,240,240,0.9));
+            margin-bottom: 15px;
+        }
+        
+        .confirmation-display code {
+            font-family: 'Courier New', monospace;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #dc3545;
+            letter-spacing: 1px;
+        }
+        
+        /* Animasi untuk teks konfirmasi */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+            20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        
+        .confirmation-display.shaking {
+            animation: shake 0.5s;
         }
     </style>
 </head>
@@ -324,6 +463,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
 
+        <!-- Tombol Hapus Semua untuk Superadmin -->
+        <?php if ($_SESSION['role'] === 'superadmin' && $total_suggestions > 0): ?>
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="alert alert-warning delete-all-alert">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Superadmin Action:</strong> Anda dapat menghapus semua data kritik & saran sekaligus
+                            <div class="mt-1 text-muted">
+                                <small>
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Tindakan ini hanya tersedia untuk Superadmin dan akan menghapus semua <?php echo $total_suggestions; ?> data
+                                </small>
+                            </div>
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteAllModal">
+                                <i class="fas fa-trash-alt me-2"></i>Hapus Semua Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Suggestions List -->
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -359,22 +525,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($suggestions as $index => $suggestion): ?>
-                            <tr>
+                            <?php foreach ($suggestions as $index => $suggestion): 
+                                $isUnread = $suggestion['status'] === 'pending';
+                                $message = htmlspecialchars($suggestion['message']);
+                                $messageLength = strlen($message);
+                            ?>
+                            <tr class="<?php echo $isUnread ? 'highlight-unread' : ''; ?>" 
+                                data-id="<?php echo $suggestion['id']; ?>"
+                                data-status="<?php echo $suggestion['status']; ?>">
                                 <td><?php echo $offset + $index + 1; ?></td>
                                 <td>
                                     <div>
-                                        <strong><?php echo htmlspecialchars($suggestion['name']); ?></strong><br>
+                                        <strong><?php echo htmlspecialchars($suggestion['name']); ?></strong>
+                                        <?php if ($isUnread): ?>
+                                            <span class="badge-new">BARU</span>
+                                        <?php endif; ?>
+                                        <br>
                                         <small class="text-muted"><?php echo htmlspecialchars($suggestion['email'] ?: 'Tidak ada email'); ?></small>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="message-preview">
+                                    <div class="message-preview" 
+                                         data-id="<?php echo $suggestion['id']; ?>"
+                                         data-status="<?php echo $suggestion['status']; ?>"
+                                         data-full-message="<?php echo htmlspecialchars($suggestion['message']); ?>">
                                         <?php 
-                                        $message = htmlspecialchars($suggestion['message']);
-                                        echo strlen($message) > 50 ? substr($message, 0, 50) . '...' : $message;
+                                        if ($isUnread && $messageLength > 0) {
+                                            // Untuk pesan pending: tampilkan hanya huruf pertama + bintang
+                                            $firstChar = $message[0];
+                                            $stars = str_repeat('*', max(0, $messageLength - 1));
+                                            $displayText = $firstChar . $stars;
+                                            
+                                            // Potong jika terlalu panjang
+                                            if ($messageLength > 50) {
+                                                $displayText = substr($displayText, 0, 50) . '...';
+                                            }
+                                            
+                                            echo '<span class="blurred-message">' . htmlspecialchars($displayText) . '</span>';
+                                            echo '<span class="actual-message d-none">' . (strlen($message) > 50 ? substr($message, 0, 50) . '...' : $message) . '</span>';
+                                        } else {
+                                            // Untuk pesan sudah dibaca: tampilkan normal
+                                            echo strlen($message) > 50 ? substr($message, 0, 50) . '...' : $message;
+                                        }
                                         ?>
                                     </div>
+                                    <?php if ($isUnread): ?>
+                                        <small class="unread-hint">
+                                            <i class="fas fa-exclamation-circle me-1"></i>Klik detail untuk membaca pesan lengkap
+                                        </small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php 
@@ -453,7 +652,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                                         <textarea name="response" class="form-control" rows="3" placeholder="Masukkan tanggapan..."><?php echo htmlspecialchars($suggestion['response'] ?? ''); ?></textarea>
                                                                     </div>
                                                                     <div class="d-flex justify-content-between">
-                                                                        <button type="submit" class="btn btn-primary" id="submitBtn<?php echo $suggestion['id']; ?>" <?php echo $suggestion['status'] !== 'pending' ? 'disabled' : ''; ?>>
+                                                                        <button type="submit" class="btn btn-primary">
                                                                             <i class="fas fa-save me-2"></i> Simpan Perubahan
                                                                         </button>
                                                                         <?php if ($_SESSION['role'] === 'superadmin'): ?>
@@ -534,7 +733,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 
-    <!-- Delete Form -->
+    <!-- Modal Konfirmasi Hapus Semua -->
+    <div class="modal fade" id="deleteAllModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Konfirmasi Penghapusan
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-trash-alt fa-4x text-danger mb-3"></i>
+                        <h4 class="text-danger">PERINGATAN!</h4>
+                    </div>
+                    
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-exclamation-circle me-2"></i>Tindakan ini akan:</h6>
+                        <ul class="mb-0">
+                            <li>Menghapus <strong>SEMUA <?php echo $total_suggestions; ?> data</strong> kritik & saran</li>
+                            <li>Data yang dihapus <strong>TIDAK DAPAT DIPULIHKAN</strong></li>
+                            <li>Statistik akan direset ke 0</li>
+                            <li>Riwayat respons juga akan terhapus</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Masukkan konfirmasi berikut:</label>
+                        <div class="mb-2">
+                            <div class="confirmation-display bg-light p-3 rounded text-center">
+                                <code id="randomConfirmationText" class="text-danger fw-bold fs-5" 
+                                      style="letter-spacing: 1px;"></code>
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Ketik teks di atas dengan tepat (huruf kapital) untuk mengaktifkan tombol hapus
+                            </small>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" id="deleteAllConfirm" class="form-control" 
+                                   placeholder="Ketik teks konfirmasi..." autocomplete="off">
+                            <button type="button" class="btn btn-outline-secondary" onclick="copyConfirmationText()" title="Salin teks konfirmasi">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-warning" onclick="regenerateConfirmationText()" title="Buat teks konfirmasi baru">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <small class="text-muted">
+                                <i class="fas fa-shield-alt me-1"></i>
+                                Teks konfirmasi diacak setiap kali untuk keamanan tambahan
+                            </small>
+                            <small>
+                                <span id="charCount">0</span> karakter
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-2"></i>Batal
+                    </button>
+                    <form method="POST" id="deleteAllForm">
+                        <input type="hidden" name="action" value="delete_all">
+                        <input type="hidden" name="confirm_delete_all" value="1">
+                        <input type="hidden" id="correctConfirmationText" value="">
+                        <button type="submit" id="deleteAllSubmitBtn" class="btn btn-danger" disabled>
+                            <i class="fas fa-trash-alt me-2"></i>Ya, Hapus Semua Data
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Form untuk single delete -->
     <form id="deleteForm" method="POST" style="display: none;">
         <input type="hidden" name="suggestion_id" id="deleteSuggestionId">
         <input type="hidden" name="action" value="delete">
@@ -578,125 +853,286 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Fungsi untuk auto update status via AJAX
-        function autoUpdateStatus(suggestionId, currentStatus, modal) {
-            if (currentStatus !== 'pending') {
-                return;
-            }
-            
-            console.log('Auto updating status for suggestion:', suggestionId);
-            
-            fetch('update_suggestion_status.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'action=auto_update&suggestion_id=' + suggestionId
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    // Update UI tanpa refresh halaman
-                    updateUIAfterAutoRead(suggestionId, modal);
-                } else {
-                    console.error('Error from server:', data.message);
-                }
-            })
-            .catch(error => console.error('Error:', error));
-        }
-        
-        // Fungsi untuk update UI setelah auto update status
-        function updateUIAfterAutoRead(suggestionId, modal) {
-            console.log('Updating UI for suggestion:', suggestionId);
-            
-            // 1. Update badge di tabel utama
-            const tableRow = document.querySelector(`tr:has(button[data-id="${suggestionId}"])`);
-            if (tableRow) {
-                const badge = tableRow.querySelector('.status-badge[data-id="' + suggestionId + '"]');
-                if (badge) {
-                    badge.className = 'badge status-badge badge-read';
-                    badge.textContent = 'Sudah Dibaca';
-                    console.log('Table badge updated');
-                }
-            }
-            
-            // 2. Update data-status di tombol di tabel
-            const button = document.querySelector(`button[data-id="${suggestionId}"]`);
-            if (button) {
-                button.dataset.status = 'read';
-                console.log('Button status updated');
-            }
-            
-            // 3. Update modal select jika modal tersedia
-            if (modal) {
-                const select = modal.find(`#statusSelect${suggestionId}`);
-                if (select.length) {
-                    // Hapus opsi pending jika ada
-                    const pendingOption = select.find('option[value="pending"]');
-                    if (pendingOption.length) {
-                        pendingOption.remove();
-                    }
-                    
-                    // Set selected ke 'read'
-                    select.val('read');
-                    
-                    // Tambahkan info text jika belum ada
-                    const parentDiv = select.parent();
-                    if (!parentDiv.find('.status-info').length) {
-                        const infoDiv = $('<div class="status-info text-muted mt-1"><i class="fas fa-info-circle"></i> Status tidak bisa dikembalikan ke pending setelah dibaca.</div>');
-                        select.after(infoDiv);
-                    }
-                    
-                    console.log('Modal select updated');
-                }
+        // Fungsi untuk menghilangkan blur setelah pesan dibaca
+        function removeBlurAfterRead(suggestionId) {
+            const messageDiv = document.querySelector(`.message-preview[data-id="${suggestionId}"]`);
+            if (messageDiv) {
+                const blurredElement = messageDiv.querySelector('.blurred-message');
+                const actualElement = messageDiv.querySelector('.actual-message');
                 
-                // 4. Disable submit button di modal
-                const submitBtn = modal.find(`#submitBtn${suggestionId}`);
-                if (submitBtn.length) {
-                    submitBtn.prop('disabled', true);
-                    submitBtn.html('<i class="fas fa-save me-2"></i> Status sudah diperbarui');
-                    console.log('Submit button disabled');
-                }
-            }
-            
-            // 5. Update stats secara real-time
-            updateStatsCounters();
-            
-            // Tampilkan notifikasi
-            showNotification('Status berhasil diperbarui menjadi "Sudah Dibaca"', 'success');
-        }
-        
-        // Fungsi untuk update statistik counter
-        function updateStatsCounters() {
-            // Update pending count
-            const pendingCard = document.querySelector('.pending-count');
-            if (pendingCard) {
-                const currentPending = parseInt(pendingCard.textContent);
-                if (currentPending > 0) {
-                    pendingCard.textContent = currentPending - 1;
-                    pendingCard.classList.add('updated');
+                if (blurredElement && actualElement) {
+                    // Tambahkan animasi
+                    blurredElement.classList.add('unblur-animation');
+                    
+                    // Ganti konten setelah animasi selesai
                     setTimeout(() => {
-                        pendingCard.classList.remove('updated');
+                        blurredElement.textContent = actualElement.textContent;
+                        blurredElement.classList.remove('blurred-message');
+                        blurredElement.classList.remove('unblur-animation');
+                        blurredElement.classList.add('read-message');
+                        actualElement.remove();
+                        
+                        // Hapus pesan peringatan
+                        const hint = messageDiv.nextElementSibling;
+                        if (hint && hint.classList.contains('unread-hint')) {
+                            hint.style.display = 'none';
+                        }
                     }, 500);
                 }
             }
             
-            // Update read count
-            const readCard = document.querySelector('.read-count');
-            if (readCard) {
-                const currentRead = parseInt(readCard.textContent);
-                readCard.textContent = currentRead + 1;
-                readCard.classList.add('updated');
-                setTimeout(() => {
-                    readCard.classList.remove('updated');
-                }, 500);
+            // Update badge status di baris tabel
+            const tableRow = document.querySelector(`tr[data-id="${suggestionId}"]`);
+            if (tableRow) {
+                tableRow.classList.remove('highlight-unread');
+                
+                // Hapus badge "BARU"
+                const newBadge = tableRow.querySelector('.badge-new');
+                if (newBadge) {
+                    newBadge.style.opacity = '0';
+                    setTimeout(() => newBadge.remove(), 300);
+                }
+                
+                // Update status badge
+                const statusBadge = tableRow.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.classList.remove('badge-pending');
+                    statusBadge.classList.add('badge-read');
+                    statusBadge.textContent = 'Sudah Dibaca';
+                    statusBadge.dataset.status = 'read';
+                }
+            }
+            
+            // Update button data
+            const detailBtn = document.querySelector(`.detail-btn[data-id="${suggestionId}"]`);
+            if (detailBtn) {
+                detailBtn.dataset.status = 'read';
             }
         }
+        
+        // Fungsi untuk update statistik
+        function updateStatsAfterRead() {
+            // Update pending count
+            const pendingCount = document.querySelector('.pending-count');
+            if (pendingCount) {
+                const current = parseInt(pendingCount.textContent);
+                if (current > 0) {
+                    pendingCount.textContent = current - 1;
+                    pendingCount.classList.add('updated');
+                    setTimeout(() => pendingCount.classList.remove('updated'), 1000);
+                }
+            }
+            
+            // Update read count
+            const readCount = document.querySelector('.read-count');
+            if (readCount) {
+                const current = parseInt(readCount.textContent);
+                readCount.textContent = current + 1;
+                readCount.classList.add('updated');
+                setTimeout(() => readCount.classList.remove('updated'), 1000);
+            }
+        }
+        
+        // Fungsi untuk mengecek pesan yang sudah dibaca dari localStorage
+        function checkPreviouslyReadMessages() {
+            const unreadMessages = document.querySelectorAll('.message-preview[data-status="pending"]');
+            
+            unreadMessages.forEach(messageDiv => {
+                const suggestionId = messageDiv.dataset.id;
+                const isRead = localStorage.getItem(`message_read_${suggestionId}`);
+                
+                if (isRead === 'true') {
+                    // Jika sudah dibaca, langsung hilangkan blur
+                    removeBlurAfterRead(suggestionId);
+                }
+            });
+        }
+        
+        // ========== FUNGSI UNTUK TEKS KONFIRMASI ACAK ==========
+        
+        // Fungsi untuk membuat teks konfirmasi acak dalam bahasa Indonesia
+        function generateRandomConfirmationText() {
+            // Daftar kata yang akan diacak - menggunakan kata-kata terkait hapus/data
+            const words = [
+                "HAPUS", "SEMUA", "DATA", "KRITIK", "SARAN", 
+                "HAPUSKAN", "SEMUANYA", "HISTORI", "REKAMAN", 
+                "KONFIRMASI", "VERIFIKASI", "TINDAKAN", "PERMANEN",
+                "BASISDATA", "ARSIP", "EVIDENSI", "CATATAN",
+                "PENGHAPUSAN", "RESET", "BERSIHKAN", "KOSONGKAN",
+                "BASIS", "DAFTAR", "ENTRI", "LOG", "LAPORAN"
+            ];
+            
+            // Daftar pola kalimat untuk variasi
+            const patterns = [
+                ["KONFIRMASI", "HAPUS", "SEMUA", "DATA"],
+                ["HAPUSKAN", "SEMUA", "KRITIK", "SARAN"],
+                ["VERIFIKASI", "PENGHAPUSAN", "SEMUANYA"],
+                ["HAPUS", "DATA", "DAN", "ARSIP"],
+                ["BERSIHKAN", "SEMUA", "REKAMAN"],
+                ["HAPUS", "SEMUA", "ENTRI", "BASISDATA"],
+                ["KONFIRMASI", "RESET", "LAPORAN"],
+                ["VERIFIKASI", "HAPUS", "HISTORI"],
+                ["KOSONGKAN", "SEMUA", "CATATAN"]
+            ];
+            
+            // Pilih antara pola atau acak
+            const usePattern = Math.random() > 0.4;
+            
+            let confirmationText;
+            
+            if (usePattern) {
+                // Gunakan pola yang sudah ditentukan
+                const randomPattern = patterns[Math.floor(Math.random() * patterns.length)];
+                confirmationText = randomPattern.join(' ');
+            } else {
+                // Buat acak dari kata-kata (3-5 kata)
+                const numWords = Math.floor(Math.random() * 3) + 3; // 3, 4, atau 5 kata
+                
+                // Acak kata-kata
+                const shuffled = [...words]
+                    .sort(() => 0.5 - Math.random())
+                    .slice(0, numWords);
+                
+                // Pastikan "HAPUS" atau "HAPUSKAN" selalu ada untuk kejelasan
+                if (!shuffled.some(word => word.includes("HAPUS"))) {
+                    shuffled[0] = "HAPUS";
+                }
+                
+                confirmationText = shuffled.join(' ');
+            }
+            
+            return confirmationText;
+        }
+        
+        // Fungsi untuk menampilkan teks konfirmasi baru
+        function displayNewConfirmationText() {
+            const randomText = generateRandomConfirmationText();
+            const displayElement = document.getElementById('randomConfirmationText');
+            const hiddenElement = document.getElementById('correctConfirmationText');
+            
+            // Tambahkan efek animasi
+            displayElement.parentElement.classList.add('shaking');
+            
+            setTimeout(() => {
+                // Update teks
+                displayElement.textContent = randomText;
+                hiddenElement.value = randomText;
+                
+                // Hapus efek animasi
+                displayElement.parentElement.classList.remove('shaking');
+                
+                // Update hitungan karakter
+                updateCharCount(randomText.length);
+            }, 300);
+        }
+        
+        // Fungsi untuk copy teks konfirmasi
+        function copyConfirmationText() {
+            const textToCopy = document.getElementById('randomConfirmationText').textContent;
+            navigator.clipboard.writeText(textToCopy).then(function() {
+                showNotification('Teks konfirmasi berhasil disalin ke clipboard', 'success');
+                
+                // Auto-paste ke input
+                const inputField = document.getElementById('deleteAllConfirm');
+                inputField.value = textToCopy;
+                inputField.focus();
+                inputField.dispatchEvent(new Event('input'));
+            }).catch(function(err) {
+                console.error('Gagal menyalin teks: ', err);
+                // Fallback manual
+                const inputField = document.getElementById('deleteAllConfirm');
+                inputField.value = textToCopy;
+                inputField.focus();
+                inputField.dispatchEvent(new Event('input'));
+                showNotification('Teks konfirmasi telah diisi', 'success');
+            });
+        }
+        
+        // Fungsi untuk membuat ulang teks konfirmasi
+        function regenerateConfirmationText() {
+            displayNewConfirmationText();
+            
+            // Reset input field
+            const inputField = document.getElementById('deleteAllConfirm');
+            inputField.value = '';
+            inputField.classList.remove('is-valid', 'is-invalid');
+            inputField.focus();
+            
+            // Disable submit button
+            document.getElementById('deleteAllSubmitBtn').disabled = true;
+            
+            showNotification('Teks konfirmasi baru telah dibuat', 'success');
+        }
+        
+        // Fungsi untuk update karakter count
+        function updateCharCount(length) {
+            const charCountElement = document.getElementById('charCount');
+            if (charCountElement) {
+                charCountElement.textContent = length;
+                charCountElement.className = length >= 10 ? 'text-success' : 'text-danger';
+            }
+        }
+        
+        // Fungsi untuk setup modal hapus semua
+        function setupDeleteAllModal() {
+            const confirmInput = document.getElementById('deleteAllConfirm');
+            const submitBtn = document.getElementById('deleteAllSubmitBtn');
+            
+            if (confirmInput && submitBtn) {
+                // Generate teks konfirmasi acak saat modal dibuka
+                $('#deleteAllModal').on('show.bs.modal', function() {
+                    displayNewConfirmationText();
+                    
+                    // Reset input dan button state
+                    confirmInput.value = '';
+                    confirmInput.classList.remove('is-valid', 'is-invalid');
+                    submitBtn.disabled = true;
+                    
+                    // Focus ke input field
+                    setTimeout(() => confirmInput.focus(), 500);
+                });
+                
+                // Validasi input real-time
+                confirmInput.addEventListener('input', function() {
+                    const inputText = this.value.trim();
+                    const correctText = document.getElementById('correctConfirmationText').value;
+                    const isCorrect = inputText === correctText;
+                    
+                    submitBtn.disabled = !isCorrect;
+                    
+                    if (inputText === '') {
+                        this.classList.remove('is-valid', 'is-invalid');
+                    } else if (isCorrect) {
+                        this.classList.remove('is-invalid');
+                        this.classList.add('is-valid');
+                    } else {
+                        this.classList.remove('is-valid');
+                        this.classList.add('is-invalid');
+                    }
+                    
+                    // Update karakter count
+                    updateCharCount(inputText.length);
+                });
+                
+                // Tambahkan event listener untuk Enter key
+                confirmInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter' && !submitBtn.disabled) {
+                        e.preventDefault();
+                        submitBtn.click();
+                    }
+                });
+                
+                // Reset saat modal ditutup
+                $('#deleteAllModal').on('hidden.bs.modal', function() {
+                    confirmInput.value = '';
+                    confirmInput.classList.remove('is-valid', 'is-invalid');
+                    submitBtn.disabled = true;
+                    updateCharCount(0);
+                });
+            }
+        }
+        
+        // ========== AKHIR FUNGSI TEKS KONFIRMASI ACAK ==========
         
         $(document).ready(function() {
             // Auto-show notification if there's a message
@@ -708,29 +1144,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             showNotification("<?php echo $_SESSION['error']; ?>", 'danger');
             <?php unset($_SESSION['error']); endif; ?>
             
-            // Event listener untuk modal show
-            $('.modal').on('show.bs.modal', function (event) {
-                var button = $(event.relatedTarget);
-                var suggestionId = button.data('id');
-                var currentStatus = button.data('status');
-                var modal = $(this);
-                
-                console.log('Modal opened for suggestion:', suggestionId, 'Status:', currentStatus);
-                
-                // Auto update status ke "read" ketika modal dibuka (jika masih pending)
-                if (currentStatus === 'pending') {
-                    autoUpdateStatus(suggestionId, currentStatus, modal);
-                }
-            });
-            
-            // Tambahkan event listener untuk detail button
+            // Saat modal detail dibuka
             $('.detail-btn').on('click', function() {
                 const suggestionId = $(this).data('id');
                 const currentStatus = $(this).data('status');
                 
-                // Jika status masih pending, update via AJAX
+                // Jika status pending, update UI
                 if (currentStatus === 'pending') {
-                    // Update status di database via AJAX
+                    // Simpan di localStorage bahwa pesan sudah dibaca
+                    localStorage.setItem(`message_read_${suggestionId}`, 'true');
+                    
+                    // Update UI
+                    removeBlurAfterRead(suggestionId);
+                    updateStatsAfterRead();
+                    
+                    // Update form dalam modal
+                    const modalId = `#detailModal${suggestionId}`;
+                    const modalElement = $(modalId);
+                    
+                    // Hapus opsi pending dari select
+                    const select = modalElement.find(`#statusSelect${suggestionId}`);
+                    select.find('option[value="pending"]').remove();
+                    select.val('read');
+                    
+                    // Tambahkan info text
+                    if (!select.next('.status-info').length) {
+                        select.after('<div class="status-info text-muted mt-1"><i class="fas fa-info-circle"></i> Status tidak bisa dikembalikan ke pending setelah dibaca.</div>');
+                    }
+                    
+                    // Kirim update status ke server via AJAX
                     $.ajax({
                         url: 'update_suggestion_status.php',
                         type: 'POST',
@@ -739,35 +1181,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             suggestion_id: suggestionId
                         },
                         success: function(response) {
-                            if (response.success) {
-                                // Update UI
-                                const button = $(`button[data-id="${suggestionId}"]`);
-                                const row = button.closest('tr');
-                                
-                                // Update badge
-                                row.find('.status-badge').removeClass('badge-pending').addClass('badge-read').text('Sudah Dibaca');
-                                
-                                // Update button data
-                                button.data('status', 'read');
-                                
-                                // Update stats
-                                updateStatsCounters();
-                                
-                                // Update modal content if it's open
-                                const modal = $(`#detailModal${suggestionId}`);
-                                if (modal.hasClass('show')) {
-                                    // Update select in modal
-                                    const select = modal.find(`#statusSelect${suggestionId}`);
-                                    select.find('option[value="pending"]').remove();
-                                    select.val('read');
-                                    
-                                    // Update submit button
-                                    modal.find(`#submitBtn${suggestionId}`).prop('disabled', true).html('<i class="fas fa-save me-2"></i> Status sudah diperbarui');
-                                }
-                            }
+                            console.log('Status updated on server');
+                        },
+                        error: function() {
+                            console.log('Failed to update status on server');
                         }
                     });
                 }
+            });
+            
+            // Cek pesan yang sudah dibaca sebelumnya
+            checkPreviouslyReadMessages();
+            
+            // Setup delete all modal
+            setupDeleteAllModal();
+            
+            // Validasi form delete all saat submit
+            $('#deleteAllForm').on('submit', function(e) {
+                const confirmInput = document.getElementById('deleteAllConfirm');
+                const correctText = document.getElementById('correctConfirmationText').value;
+                
+                if (!confirmInput || confirmInput.value.trim() !== correctText) {
+                    e.preventDefault();
+                    showNotification('Harap ketik teks konfirmasi dengan tepat', 'danger');
+                    
+                    // Tambahkan efek visual pada teks konfirmasi
+                    const displayElement = document.getElementById('randomConfirmationText').parentElement;
+                    displayElement.classList.add('shaking');
+                    setTimeout(() => displayElement.classList.remove('shaking'), 500);
+                    
+                    return false;
+                }
+                
+                // Tampilkan loading state
+                const submitBtn = document.getElementById('deleteAllSubmitBtn');
+                if (submitBtn) {
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Menghapus...';
+                    submitBtn.disabled = true;
+                    
+                    // Kembalikan ke state semula jika submit dibatalkan
+                    setTimeout(() => {
+                        if (submitBtn.disabled) {
+                            submitBtn.innerHTML = originalText;
+                            submitBtn.disabled = false;
+                        }
+                    }, 3000);
+                }
+                
+                // Konfirmasi akhir
+                if (!confirm('APAKAH ANDA YAKIN 100%?\n\nTindakan ini akan menghapus SEMUA <?php echo $total_suggestions; ?> data kritik & saran.\n\nTINDAKAN INI TIDAK DAPAT DIBATALKAN!')) {
+                    e.preventDefault();
+                    // Reset button state
+                    if (submitBtn) {
+                        submitBtn.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Ya, Hapus Semua Data';
+                        submitBtn.disabled = false;
+                    }
+                    return false;
+                }
+                
+                return true;
             });
         });
     </script>

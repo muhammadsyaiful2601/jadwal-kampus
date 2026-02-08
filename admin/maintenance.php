@@ -376,7 +376,7 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
             z-index: 2;
         }
         
-        /* Button Styles */
+        /* Button Styles - DIPERBAIKI */
         .btn-toggle {
             padding: 18px 50px;
             font-size: 1.2rem;
@@ -444,6 +444,64 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
             transform: translateY(-3px);
             box-shadow: 0 12px 35px rgba(67, 97, 238, 0.4);
             color: white;
+        }
+        
+        /* Tombol Navigasi - DIPERBAIKI */
+        .btn-nav {
+            position: relative !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 12px 24px !important;
+            border-radius: var(--border-radius) !important;
+            font-weight: 600 !important;
+            transition: var(--transition) !important;
+            border: 2px solid !important;
+            text-decoration: none !important;
+            min-height: 52px !important;
+            z-index: 2 !important;
+        }
+        
+        .btn-nav > * {
+            position: relative !important;
+            z-index: 3 !important;
+        }
+        
+        .btn-nav::after {
+            content: '' !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            z-index: 1 !important;
+            border-radius: var(--border-radius) !important;
+        }
+        
+        .btn-outline-primary {
+            border-color: var(--primary-color) !important;
+            color: var(--primary-color) !important;
+            background: transparent !important;
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: var(--primary-color) !important;
+            color: white !important;
+            transform: translateY(-3px) !important;
+            box-shadow: 0 10px 25px rgba(67, 97, 238, 0.3) !important;
+        }
+        
+        .btn-outline-secondary {
+            border-color: var(--gray-color) !important;
+            color: var(--gray-color) !important;
+            background: transparent !important;
+        }
+        
+        .btn-outline-secondary:hover {
+            background-color: var(--gray-color) !important;
+            color: white !important;
+            transform: translateY(-3px) !important;
+            box-shadow: 0 10px 25px rgba(108, 117, 125, 0.3) !important;
         }
         
         /* Form Styles */
@@ -734,6 +792,11 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
                 font-size: 1.1rem;
             }
             
+            .btn-nav {
+                padding: 10px 20px !important;
+                min-height: 48px !important;
+            }
+            
             .feature-grid {
                 grid-template-columns: 1fr;
             }
@@ -758,10 +821,10 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
                     </p>
                 </div>
                 <div class="d-flex flex-wrap gap-3">
-                    <a href="dashboard.php" class="btn btn-outline-primary">
+                    <a href="dashboard.php" class="btn-nav btn-outline-primary">
                         <i class="fas fa-arrow-left me-2"></i>Dashboard
                     </a>
-                    <a href="../index.php" class="btn btn-outline-secondary" target="_blank">
+                    <a href="../index.php" class="btn-nav btn-outline-secondary" target="_blank">
                         <i class="fas fa-external-link-alt me-2"></i>Lihat Website
                     </a>
                 </div>
@@ -1057,7 +1120,7 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
                         
                         <?php if(!empty($maintenanceLogs)): ?>
                         <div class="mt-5 text-center">
-                            <a href="activity_logs.php?filter=maintenance" class="btn btn-outline-primary px-4 py-3">
+                            <a href="activity_logs.php?filter=maintenance" class="btn-nav btn-outline-primary">
                                 <i class="fas fa-list me-3"></i> Lihat Semua Log Maintenance
                             </a>
                         </div>
@@ -1249,6 +1312,21 @@ $maintenanceCount = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
                     }, 100);
                 });
             }
+            
+            // Pastikan tombol navigasi memiliki area klik yang benar
+            document.querySelectorAll('.btn-nav').forEach(btn => {
+                // Tambahkan event listener untuk memastikan seluruh area dapat diklik
+                btn.addEventListener('click', function(e) {
+                    // Biarkan event berjalan normal
+                    console.log('Tombol navigasi diklik:', this.href);
+                });
+                
+                // Pastikan elemen di dalam tombol tidak mengganggu area klik
+                const children = btn.children;
+                for (let i = 0; i < children.length; i++) {
+                    children[i].style.pointerEvents = 'none';
+                }
+            });
             
             // Responsif untuk layar kecil
             function handleResponsive() {

@@ -1,4 +1,10 @@
 <?php
+// Atur session settings sebelum session dimulai
+if (session_status() === PHP_SESSION_NONE) {
+    // Timeout 1 jam
+    ini_set('session.gc_maxlifetime', 3600);
+    session_set_cookie_params(3600);
+}
 date_default_timezone_set('Asia/Jakarta');
 
 // =======================================================
@@ -710,49 +716,88 @@ function prepareActivityDataForExport($logs, $admin_info) {
 }
 
 // =======================================================
-// MODIFIED LOCKOUT FUNCTIONS (COUNTDOWN HANYA PADA PERCOBAAN TERAKHIR) - DIUBAH KE DETIK
+// MODIFIED LOCKOUT FUNCTIONS (DURASI BERTAMBAH PROGRESIF)
 // =======================================================
 
 /**
- * Handle failed login attempts - Modified version: countdown only starts on last attempt
+ * Handle failed login attempts - Modified version: progressive lockout duration
+ * Lockout pertama: 15 detik, kedua: 30 detik, ketiga: 1 menit, keempat: 2 menit, dst
  */
 function handleFailedLoginModified($db, $user_id) {
     try {
         // Get settings
         $max_attempts = (int)getSetting($db, 'max_login_attempts', 5);
-        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15); // SEKARANG DALAM DETIK
+        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15); // DALAM DETIK
+        $max_multiplier = (int)getSetting($db, 'lockout_max_multiplier', 10); // Maksimal 10 level
         
         // Get current user data
-        $stmt = $db->prepare("SELECT failed_attempts FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT failed_attempts, lockout_multiplier, locked_until FROM users WHERE id = ?");
         $stmt->execute([$user_id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if (!$user) return false;
         
         $failed_attempts = $user['failed_attempts'] + 1;
+        $current_multiplier = $user['lockout_multiplier'];
+        
+        // Check if account is currently locked
+        $is_locked = $user['locked_until'] && strtotime($user['locked_until']) > time();
+        
+        // If account is already locked, don't increase attempts
+        if ($is_locked) {
+            $remaining = strtotime($user['locked_until']) - time();
+            return [
+                'locked' => true,
+                'duration' => $remaining,
+                'locked_until' => $user['locked_until'],
+                'attempts_left' => 0,
+                'is_final_attempt' => true,
+                'multiplier' => $current_multiplier
+            ];
+        }
+        
+        // Reset multiplier jika sudah lewat periode reset
+        resetLockoutMultiplierAfterPeriod($db, $user_id);
+        
+        // Get updated multiplier setelah reset
+        $stmt = $db->prepare("SELECT lockout_multiplier FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $updated_user = $stmt->fetch(PDO::FETCH_ASSOC);
+        $current_multiplier = $updated_user['lockout_multiplier'];
         
         // Only lock account when reaching max attempts (last attempt)
         if ($failed_attempts >= $max_attempts) {
-            // Set lockout time (in SECONDS) - DIUBAH
-            $lockout_seconds = $initial_duration; // Langsung gunakan detik
-            $locked_until = date('Y-m-d H:i:s', strtotime("+{$lockout_seconds} seconds")); // DIUBAH: seconds bukan minutes
+            // Calculate lockout duration based on multiplier (dalam detik)
+            // Formula: initial_duration * (2^(multiplier-1))
+            // multiplier=1 -> 15 detik, multiplier=2 -> 30 detik, multiplier=3 -> 60 detik, dst
+            $lockout_seconds = $initial_duration * pow(2, $current_multiplier - 1);
+            
+            // Increase multiplier for next lockout (max 10 levels)
+            $new_multiplier = min($current_multiplier + 1, $max_multiplier);
+            
+            $locked_until = date('Y-m-d H:i:s', strtotime("+{$lockout_seconds} seconds"));
             
             $updateQuery = "UPDATE users SET 
                            failed_attempts = ?,
                            locked_until = ?,
-                           lockout_multiplier = 1,
+                           lockout_multiplier = ?,
                            last_failed_attempt = NOW()
                            WHERE id = ?";
             
             $stmt = $db->prepare($updateQuery);
-            $stmt->execute([$failed_attempts, $locked_until, $user_id]);
+            $stmt->execute([$failed_attempts, $locked_until, $new_multiplier, $user_id]);
+            
+            // Log lockout event with multiplier info
+            logActivity($db, $user_id, 'Account Locked', 
+                       "Akun terkunci selama {$lockout_seconds} detik (Level Lockout: {$current_multiplier})");
             
             return [
                 'locked' => true,
-                'duration' => $lockout_seconds, // Sudah dalam detik
+                'duration' => $lockout_seconds,
                 'locked_until' => $locked_until,
                 'attempts_left' => 0,
-                'is_final_attempt' => true
+                'is_final_attempt' => true,
+                'multiplier' => $current_multiplier
             ];
         } else {
             // Update only failed attempts (no lockout yet)
@@ -777,6 +822,87 @@ function handleFailedLoginModified($db, $user_id) {
     } catch (Exception $e) {
         error_log("Error handling failed login (modified): " . $e->getMessage());
         return false;
+    }
+}
+
+/**
+ * Reset lockout multiplier after a period of no failed attempts
+ */
+function resetLockoutMultiplierAfterPeriod($db, $user_id) {
+    try {
+        $reset_hours = (int)getSetting($db, 'lockout_reset_hours', 24);
+        
+        $stmt = $db->prepare("SELECT last_failed_attempt, lockout_multiplier FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$user || !$user['last_failed_attempt']) return false;
+        
+        $last_attempt = strtotime($user['last_failed_attempt']);
+        $current_time = time();
+        $hours_passed = ($current_time - $last_attempt) / 3600;
+        
+        // Reset multiplier to 1 if reset period has passed and multiplier > 1
+        if ($hours_passed >= $reset_hours && $user['lockout_multiplier'] > 1) {
+            $stmt = $db->prepare("UPDATE users SET lockout_multiplier = 1 WHERE id = ?");
+            $result = $stmt->execute([$user_id]);
+            
+            if ($result) {
+                logActivity($db, $user_id, 'Lockout Reset', 
+                           "Multiplier lockout direset ke Level 1 setelah {$reset_hours} jam tidak ada percobaan");
+            }
+            
+            return $result;
+        }
+        
+        return false;
+    } catch (Exception $e) {
+        error_log("Error resetting lockout multiplier: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get lockout multiplier info for display
+ */
+function getLockoutMultiplierInfo($db, $user_id) {
+    try {
+        $stmt = $db->prepare("SELECT lockout_multiplier, last_failed_attempt FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$user) return null;
+        
+        $multiplier = $user['lockout_multiplier'];
+        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15);
+        
+        // Current lockout duration for this multiplier
+        $current_duration = $initial_duration * pow(2, $multiplier - 1);
+        
+        // Next lockout duration if multiplier increases
+        $next_multiplier = min($multiplier + 1, 10);
+        $next_duration = $initial_duration * pow(2, $next_multiplier - 1);
+        
+        // Calculate when multiplier will reset
+        $reset_hours = (int)getSetting($db, 'lockout_reset_hours', 24);
+        $reset_time = '';
+        if ($user['last_failed_attempt']) {
+            $last_attempt = strtotime($user['last_failed_attempt']);
+            $reset_timestamp = $last_attempt + ($reset_hours * 3600);
+            $reset_time = date('d/m/Y H:i', $reset_timestamp);
+        }
+        
+        return [
+            'multiplier' => $multiplier,
+            'current_duration' => $current_duration,
+            'next_duration' => $next_duration,
+            'reset_hours' => $reset_hours,
+            'reset_time' => $reset_time,
+            'description' => formatLockoutTime($current_duration)
+        ];
+    } catch (Exception $e) {
+        error_log("Error getting lockout multiplier info: " . $e->getMessage());
+        return null;
     }
 }
 
@@ -835,6 +961,8 @@ function resetFailedAttempts($db, $user_id) {
     try {
         $stmt = $db->prepare("UPDATE users SET 
                              failed_attempts = 0,
+                             locked_until = NULL,
+                             lockout_multiplier = 1, // Reset ke 1 setelah login berhasil
                              last_failed_attempt = NULL
                              WHERE id = ?");
         return $stmt->execute([$user_id]);
@@ -867,13 +995,12 @@ function cleanupOldFailedAttempts($db) {
 }
 
 // =======================================================
-// LOGIN SECURITY FUNCTIONS (DIPERBAIKI) - DIUBAH KE DETIK
+// LOGIN SECURITY FUNCTIONS (DIPERBAIKI)
 // =======================================================
 
 /**
  * Check if an account is locked out (real-time check)
  * Returns remaining lockout time in seconds if locked, false otherwise
- * DIPERBAIKI: Reset failed_attempts ketika lockout berakhir
  */
 function checkAccountLockout($db, $user) {
     try {
@@ -911,14 +1038,14 @@ function checkAccountLockout($db, $user) {
 }
 
 /**
- * Handle failed login attempts and lock account if necessary - DIUBAH KE DETIK
+ * Handle failed login attempts and lock account if necessary
  */
 function handleFailedLogin($db, $user_id) {
     try {
         // Get settings
         $max_attempts = (int)getSetting($db, 'max_login_attempts', 5);
-        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15); // SEKARANG DALAM DETIK
-        $max_multiplier = (int)getSetting($db, 'lockout_max_multiplier', 24);
+        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15); // DALAM DETIK
+        $max_multiplier = (int)getSetting($db, 'lockout_max_multiplier', 10);
         
         // Get current user data
         $stmt = $db->prepare("SELECT failed_attempts, lockout_multiplier, locked_until FROM users WHERE id = ?");
@@ -942,13 +1069,13 @@ function handleFailedLogin($db, $user_id) {
         
         // Check if max attempts exceeded
         if ($failed_attempts >= $max_attempts) {
-            // Calculate lockout duration in SECONDS - DIUBAH
+            // Calculate lockout duration in SECONDS
             $lockout_seconds = $initial_duration * pow(2, $current_multiplier - 1); // dalam detik
             
             // Don't exceed max multiplier
             $new_multiplier = min($current_multiplier + 1, $max_multiplier);
             
-            // Set lockout time (in SECONDS) - DIUBAH
+            // Set lockout time (in SECONDS)
             $locked_until = date('Y-m-d H:i:s', strtotime("+{$lockout_seconds} seconds"));
             
             $updateQuery = "UPDATE users SET 
@@ -1007,15 +1134,19 @@ function resetLoginAttempts($db, $user_id) {
 
 /**
  * Check real-time lockout status and auto-reset if expired
- * DIPERBAIKI: Reset failed_attempts menjadi 0 ketika lockout berakhir
  */
 function checkRealTimeLockoutStatus($db, $user_id) {
     try {
-        $stmt = $db->prepare("SELECT locked_until, failed_attempts FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT locked_until, failed_attempts, lockout_multiplier, last_failed_attempt FROM users WHERE id = ?");
         $stmt->execute([$user_id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        if (!$user || !$user['locked_until']) {
+        if (!$user) return false;
+        
+        // Reset multiplier jika sudah lewat periode reset
+        resetLockoutMultiplierAfterPeriod($db, $user_id);
+        
+        if (!$user['locked_until']) {
             return false; // Not locked
         }
         
@@ -1024,8 +1155,13 @@ function checkRealTimeLockoutStatus($db, $user_id) {
         
         // If lockout time has passed, reset attempts and unlock automatically
         if ($locked_until <= $current_time) {
-            // Reset failed attempts dan unlock account
-            resetLoginAttempts($db, $user_id);
+            // Reset failed attempts TAPI JANGAN reset multiplier (karena sudah di-handle di resetLockoutMultiplierAfterPeriod)
+            $stmt = $db->prepare("UPDATE users SET 
+                                 failed_attempts = 0,
+                                 locked_until = NULL,
+                                 last_failed_attempt = NULL
+                                 WHERE id = ?");
+            $stmt->execute([$user_id]);
             return false;
         }
         
@@ -1075,14 +1211,12 @@ function isAccountInactive($db, $username) {
 
 /**
  * Clean up expired lockouts automatically
- * DIPERBAIKI: Reset failed_attempts menjadi 0
  */
 function cleanupExpiredLockouts($db) {
     try {
         $query = "UPDATE users SET 
                   failed_attempts = 0,
                   locked_until = NULL,
-                  lockout_multiplier = 1,
                   last_failed_attempt = NULL
                   WHERE locked_until IS NOT NULL 
                   AND locked_until <= NOW()";
@@ -1091,7 +1225,7 @@ function cleanupExpiredLockouts($db) {
         $result = $stmt->execute();
         
         if ($result && $stmt->rowCount() > 0) {
-            error_log("Cleaned up " . $stmt->rowCount() . " expired lockouts (reset attempts to 0)");
+            error_log("Cleaned up " . $stmt->rowCount() . " expired lockouts");
         }
         
         return $result;
@@ -1106,7 +1240,7 @@ function cleanupExpiredLockouts($db) {
  */
 function getLockoutStatusMessage($db, $username) {
     try {
-        $stmt = $db->prepare("SELECT locked_until, failed_attempts FROM users WHERE username = ?");
+        $stmt = $db->prepare("SELECT locked_until, failed_attempts, lockout_multiplier FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -1124,7 +1258,15 @@ function getLockoutStatusMessage($db, $username) {
         }
         
         $remaining = $locked_until - $current_time;
-        return formatLockoutTime($remaining);
+        $formatted_time = formatLockoutTime($remaining);
+        
+        // Tambahkan info level lockout
+        $multiplier = $user['lockout_multiplier'] ?? 1;
+        if ($multiplier > 1) {
+            $formatted_time .= " (Level {$multiplier})";
+        }
+        
+        return $formatted_time;
     } catch (Exception $e) {
         error_log("Error getting lockout status: " . $e->getMessage());
         return null;
@@ -1167,10 +1309,20 @@ function preventDirectAccess() {
 
 function getLockoutSettings($db) {
     try {
+        $initial_duration = (int)getSetting($db, 'lockout_initial_duration', 15);
+        
+        // Hitung durasi untuk 5 level pertama sebagai contoh
+        $durations = [];
+        for ($i = 1; $i <= 5; $i++) {
+            $seconds = $initial_duration * pow(2, $i - 1);
+            $durations["Level {$i}"] = formatLockoutTime($seconds);
+        }
+        
         $settings = [
             'max_login_attempts' => (int)getSetting($db, 'max_login_attempts', 5),
-            'lockout_initial_duration' => (int)getSetting($db, 'lockout_initial_duration', 15), // SEKARANG DALAM DETIK
-            'lockout_max_multiplier' => (int)getSetting($db, 'lockout_max_multiplier', 24),
+            'lockout_initial_duration' => $initial_duration,
+            'lockout_durations' => $durations,
+            'lockout_max_multiplier' => (int)getSetting($db, 'lockout_max_multiplier', 10),
             'lockout_reset_hours' => (int)getSetting($db, 'lockout_reset_hours', 24)
         ];
         
@@ -1179,8 +1331,9 @@ function getLockoutSettings($db) {
         error_log("Error getting lockout settings: " . $e->getMessage());
         return [
             'max_login_attempts' => 5,
-            'lockout_initial_duration' => 15, // DALAM DETIK
-            'lockout_max_multiplier' => 24,
+            'lockout_initial_duration' => 15,
+            'lockout_durations' => [],
+            'lockout_max_multiplier' => 10,
             'lockout_reset_hours' => 24
         ];
     }
@@ -1225,6 +1378,7 @@ function getUserLockoutInfo($db, $user_id) {
         return null;
     }
 }
+
 // =======================================================
 // SUGGESTIONS FUNCTIONS
 // =======================================================
@@ -1250,6 +1404,7 @@ function getAllSuggestionsCount($db) {
         return 0;
     }
 }
+
 function updateSuggestionToRead($db, $suggestion_id, $user_id) {
     try {
         // Cek status saat ini
@@ -1304,4 +1459,90 @@ function getSuggestionStatusBadge($status) {
     
     return $badges[$status] ?? '<span class="badge badge-secondary">Unknown</span>';
 }
+
+// =======================================================
+// RUNNING TEXT FUNCTIONS
+// =======================================================
+
+function getRunningTextSettings($db) {
+    try {
+        $settings = [
+            'enabled' => getSetting($db, 'running_text_enabled', '0'),
+            'content' => getSetting($db, 'running_text_content', ''),
+            'speed' => getSetting($db, 'running_text_speed', 'normal'),
+            'color' => getSetting($db, 'running_text_color', '#ffffff'),
+            'bg_color' => getSetting($db, 'running_text_bg_color', '#4361ee'),
+        ];
+        
+        return $settings;
+    } catch (Exception $e) {
+        error_log("Error getting running text settings: " . $e->getMessage());
+        return [
+            'enabled' => '0',
+            'content' => '',
+            'speed' => 'normal',
+            'color' => '#ffffff',
+            'bg_color' => '#4361ee',
+        ];
+    }
+}
+
+function updateRunningTextSettings($db, $enabled, $content, $speed, $color, $bg_color) {
+    try {
+        // Update semua setting running text
+        updateSetting($db, 'running_text_enabled', $enabled);
+        updateSetting($db, 'running_text_content', $content);
+        updateSetting($db, 'running_text_speed', $speed);
+        updateSetting($db, 'running_text_color', $color);
+        updateSetting($db, 'running_text_bg_color', $bg_color);
+        
+        return true;
+    } catch (Exception $e) {
+        error_log("Error updating running text settings: " . $e->getMessage());
+        return false;
+    }
+}
+
+function validateRunningTextContent($content) {
+    if (strlen($content) > 500) {
+        return "Konten running text tidak boleh lebih dari 500 karakter.";
+    }
+    return null;
+}
+
+function getRunningTextSpeedOptions() {
+    return [
+        'slow' => 'Lambat',
+        'normal' => 'Normal', 
+        'fast' => 'Cepat'
+    ];
+}
+
+function getDefaultRunningTextContent() {
+    return 'Selamat datang di Sistem Informasi Jadwal Kuliah. Semoga hari Anda menyenangkan!';
+}
+
+// =======================================================
+// FUNGSI UNTUK MEMASTIKAN CHECK_AUTH.PHP TERPANGGIL DI SEMUA HALAMAN ADMIN
+// =======================================================
+
+function requireAdminAuth() {
+    // Cek apakah script sedang diakses dari folder admin
+    $admin_script = (strpos($_SERVER['PHP_SELF'], '/admin/') !== false);
+    
+    if ($admin_script && basename($_SERVER['PHP_SELF']) !== 'login.php' 
+        && basename($_SERVER['PHP_SELF']) !== 'register_superadmin.php'
+        && basename($_SERVER['PHP_SELF']) !== 'logout.php') {
+        
+        // Path ke check_auth.php relatif dari file yang memanggil
+        $check_auth_path = dirname(__FILE__) . '/../admin/check_auth.php';
+        
+        if (file_exists($check_auth_path)) {
+            require_once $check_auth_path;
+        }
+    }
+}
+
+// Panggil fungsi ini di file helpers.php agar otomatis dijalankan
+requireAdminAuth();
 ?>

@@ -2021,7 +2021,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             <hr class="my-4 bg-light">
             <div class="text-center">
                 <p class="mb-2">
-                    © <?php echo date('Y'); ?> Sistem Informasi Jadwal Kuliah v4.0
+                    © <?php echo date('Y'); ?> Sistem Informasi Jadwal Kuliah v2.0
                 </p>
                 <small class="text-light opacity-75">
                     Sistem menampilkan <?php echo count($jadwal); ?> jadwal untuk semester <?php echo htmlspecialchars($semester_aktif); ?> <?php echo htmlspecialchars($tahun_akademik); ?>
