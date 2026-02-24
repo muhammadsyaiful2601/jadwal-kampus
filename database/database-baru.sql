@@ -127,7 +127,30 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
     INDEX idx_action (action)
 );
 
--- admin_audit_logs FK
+-- ==============================================
+-- TABEL: suggestions (Kritik & Saran) - ditambahkan untuk fitur saran.php
+-- ==============================================
+CREATE TABLE IF NOT EXISTS suggestions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100),
+    message TEXT NOT NULL,
+    ip_address VARCHAR(45),
+    status ENUM('pending', 'read', 'responded') DEFAULT 'pending',
+    response TEXT,
+    responded_by INT,
+    responded_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (responded_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at),
+    INDEX idx_responded_by (responded_by),
+    INDEX idx_email (email),
+    INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- admin_audit_logs FK (diletakkan setelah semua tabel terkait dibuat)
 ALTER TABLE admin_audit_logs ADD CONSTRAINT fk_admin_audit_admin FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE admin_audit_logs ADD CONSTRAINT fk_admin_audit_target_admin FOREIGN KEY (target_admin_id) REFERENCES users(id) ON DELETE SET NULL;
 
