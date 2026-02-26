@@ -333,7 +333,8 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- PERUBAHAN: tambahkan user-scalable=no untuk menonaktifkan zoom di mobile -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Jadwal Kuliah - <?php echo htmlspecialchars($institusi_nama); ?></title>
     <link rel="icon" type="image/png" href="assets/images/si.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -1266,6 +1267,78 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         .filter-tab.active {
             animation: filterPulse 0.5s ease;
         }
+
+        /* ==================================================== */
+        /* PERBAIKAN UNTUK MOBILE (TIDAK MELEBAR & TABEL SCROLL) */
+        /* ==================================================== */
+
+        /* Perbaikan kartu agar tidak melebar */
+        .jadwal-card {
+            width: 100%;
+            max-width: 100%;
+            margin-left: 0;
+            margin-right: 0;
+        }
+
+        .jadwal-mata-kuliah {
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .jadwal-info span {
+            word-break: break-word;
+            white-space: normal; /* mengatasi white-space: nowrap yang mungkin diterapkan */
+        }
+
+        /* Styling tabel mobile */
+        .jadwal-table-view .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .jadwal-table {
+            font-size: 0.8rem;
+            min-width: 800px; /* memastikan tabel cukup lebar untuk memicu scroll */
+            margin-bottom: 0;
+        }
+
+        .jadwal-table th,
+        .jadwal-table td {
+            padding: 0.5rem;
+            vertical-align: middle;
+            white-space: nowrap; /* konten tidak wrap, memicu scroll horizontal */
+        }
+
+        .jadwal-table td {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .jadwal-table .btn-sm {
+            padding: 0.2rem 0.5rem;
+            font-size: 0.7rem;
+        }
+
+        /* Sembunyikan grid di mobile, tampilkan di desktop */
+        @media (max-width: 767.98px) {
+            .jadwal-grid-view {
+                display: none !important;
+            }
+            .jadwal-table-view {
+                display: block !important;
+            }
+        }
+        @media (min-width: 768px) {
+            .jadwal-grid-view {
+                display: block !important;
+            }
+            .jadwal-table-view {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body class="<?php echo $is_maintenance ? 'maintenance-active' : ''; ?>" data-ruangan='<?php echo json_encode($ruangan_map); ?>'>
@@ -1840,124 +1913,188 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 </div>
             </div>
 
-            <?php if (empty($jadwal)): ?>
-            <div class="empty-state">
-                <i class="fas fa-calendar-times"></i>
-                <h3 class="text-muted mb-3">Tidak ada jadwal</h3>
-                <p class="text-muted mb-4">Tidak ada jadwal kuliah untuk kriteria yang dipilih</p>
-                <button class="btn btn-primary" onclick="handleShowAllSchedule()">
-                    <i class="fas fa-eye me-2"></i> Tampilkan Semua Jadwal
-                </button>
-            </div>
-            <?php elseif ($tampil_semua_hari): ?>
-                <!-- Tampilan semua hari -->
-                <?php foreach ($hari_map as $num => $hari): ?>
-                    <?php if (isset($jadwal_per_hari[$hari]) && !empty($jadwal_per_hari[$hari])): ?>
-                    <div class="hari-section">
-                        <div class="hari-title">
-                            <h4 class="mb-0">
-                                <i class="fas fa-calendar-day me-2"></i> <?php echo $hari; ?>
-                            </h4>
-                            <span class="jadwal-count">
-                                <?php echo count($jadwal_per_hari[$hari]); ?> Jadwal
-                            </span>
-                        </div>
-                        <div class="row">
-                            <?php foreach ($jadwal_per_hari[$hari] as $item): ?>
-                            <?php 
-                            // Cek apakah ini jadwal yang sedang berlangsung
-                            $is_current = false;
-                            if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
-                                if ($jadwal_berlangsung['id'] == $item['id']) {
-                                    $is_current = true;
+            <!-- TAMPILAN GRID (Desktop) -->
+            <div class="jadwal-grid-view">
+                <?php if (empty($jadwal)): ?>
+                <div class="empty-state">
+                    <i class="fas fa-calendar-times"></i>
+                    <h3 class="text-muted mb-3">Tidak ada jadwal</h3>
+                    <p class="text-muted mb-4">Tidak ada jadwal kuliah untuk kriteria yang dipilih</p>
+                    <button class="btn btn-primary" onclick="handleShowAllSchedule()">
+                        <i class="fas fa-eye me-2"></i> Tampilkan Semua Jadwal
+                    </button>
+                </div>
+                <?php elseif ($tampil_semua_hari): ?>
+                    <!-- Tampilan semua hari -->
+                    <?php foreach ($hari_map as $num => $hari): ?>
+                        <?php if (isset($jadwal_per_hari[$hari]) && !empty($jadwal_per_hari[$hari])): ?>
+                        <div class="hari-section">
+                            <div class="hari-title">
+                                <h4 class="mb-0">
+                                    <i class="fas fa-calendar-day me-2"></i> <?php echo $hari; ?>
+                                </h4>
+                                <span class="jadwal-count">
+                                    <?php echo count($jadwal_per_hari[$hari]); ?> Jadwal
+                                </span>
+                            </div>
+                            <div class="row">
+                                <?php foreach ($jadwal_per_hari[$hari] as $item): ?>
+                                <?php 
+                                // Cek apakah ini jadwal yang sedang berlangsung
+                                $is_current = false;
+                                if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
+                                    if ($jadwal_berlangsung['id'] == $item['id']) {
+                                        $is_current = true;
+                                    }
                                 }
+                                ?>
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
+                                        <div class="jadwal-header">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
+                                                <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
+                                            </div>
+                                            <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
+                                        </div>
+                                        <div class="jadwal-body">
+                                            <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
+                                            <div class="jadwal-info">
+                                                <i class="fas fa-user-tie"></i>
+                                                <span><?php echo htmlspecialchars($item['dosen']); ?></span>
+                                            </div>
+                                            <div class="jadwal-info">
+                                                <i class="fas fa-door-open"></i>
+                                                <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
+                                            </div>
+                                            <div class="jadwal-info">
+                                                <i class="fas fa-users"></i>
+                                                <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
+                                            </div>
+                                            <div class="mt-4">
+                                                <button class="btn btn-outline-primary w-100 btn-detail" 
+                                                        data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
+                                                    <i class="fas fa-info-circle me-2"></i> Detail Jadwal
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <!-- Tampilan per hari -->
+                    <div class="row">
+                        <?php foreach ($jadwal as $item): ?>
+                        <?php 
+                        // Cek apakah ini jadwal yang sedang berlangsung
+                        $is_current = false;
+                        if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
+                            if ($jadwal_berlangsung['id'] == $item['id']) {
+                                $is_current = true;
+                            }
+                        }
+                        ?>
+                        <div class="col-md-6 col-lg-4 mb-4">
+                            <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
+                                <div class="jadwal-header">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
+                                        <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
+                                    </div>
+                                    <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
+                                </div>
+                                <div class="jadwal-body">
+                                    <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
+                                    <div class="jadwal-info">
+                                        <i class="fas fa-user-tie"></i>
+                                        <span><?php echo htmlspecialchars($item['dosen']); ?></span>
+                                    </div>
+                                    <div class="jadwal-info">
+                                        <i class="fas fa-door-open"></i>
+                                        <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
+                                    </div>
+                                    <div class="jadwal-info">
+                                        <i class="fas fa-users"></i>
+                                        <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
+                                    </div>
+                                    <div class="mt-4">
+                                        <button class="btn btn-outline-primary w-100 btn-detail" 
+                                                data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
+                                            <i class="fas fa-info-circle me-2"></i> Detail Jadwal
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- TAMPILAN TABEL (Mobile) -->
+            <div class="jadwal-table-view">
+                <h5 class="mb-3">Daftar Jadwal <small class="text-muted">(geser untuk lihat lengkap)</small></h5>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped table-hover jadwal-table">
+                        <thead class="table-primary">
+                            <tr>
+                                <th>#</th>
+                                <?php if ($tampil_semua_hari): ?><th>Hari</th><?php endif; ?>
+                                <th>Jam ke-</th>
+                                <th>Waktu</th>
+                                <th>Mata Kuliah</th>
+                                <th>Dosen</th>
+                                <th>Ruang</th>
+                                <th>Kelas</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $no = 1;
+                            if ($tampil_semua_hari && !empty($jadwal_per_hari)) {
+                                foreach ($jadwal_per_hari as $hari => $items) {
+                                    foreach ($items as $item) {
+                                        echo '<tr>';
+                                        echo '<td>' . $no++ . '</td>';
+                                        echo '<td>' . htmlspecialchars($hari) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['jam_ke']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['waktu']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['mata_kuliah']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['dosen']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['ruang']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($item['kelas']) . '</td>';
+                                        echo '<td><button class="btn btn-sm btn-primary btn-detail" data-schedule=\'' . htmlspecialchars(json_encode($item), ENT_QUOTES) . '\'><i class="fas fa-info-circle"></i></button></td>';
+                                        echo '</tr>';
+                                    }
+                                }
+                            } elseif (!empty($jadwal)) {
+                                foreach ($jadwal as $item) {
+                                    echo '<tr>';
+                                    echo '<td>' . $no++ . '</td>';
+                                    if ($tampil_semua_hari) echo '<td>' . htmlspecialchars($item['hari']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['jam_ke']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['waktu']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['mata_kuliah']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['dosen']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['ruang']) . '</td>';
+                                    echo '<td>' . htmlspecialchars($item['kelas']) . '</td>';
+                                    echo '<td><button class="btn btn-sm btn-primary btn-detail" data-schedule=\'' . htmlspecialchars(json_encode($item), ENT_QUOTES) . '\'><i class="fas fa-info-circle"></i></button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                $colspan = $tampil_semua_hari ? 9 : 8;
+                                echo '<tr><td colspan="' . $colspan . '" class="text-center">Tidak ada jadwal</td></tr>';
                             }
                             ?>
-                            <div class="col-md-6 col-lg-4 mb-4">
-                                <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
-                                    <div class="jadwal-header">
-                                        <div class="d-flex justify-content-between align-items-center mb-3">
-                                            <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
-                                            <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
-                                        </div>
-                                        <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
-                                    </div>
-                                    <div class="jadwal-body">
-                                        <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
-                                        <div class="jadwal-info">
-                                            <i class="fas fa-user-tie"></i>
-                                            <span><?php echo htmlspecialchars($item['dosen']); ?></span>
-                                        </div>
-                                        <div class="jadwal-info">
-                                            <i class="fas fa-door-open"></i>
-                                            <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
-                                        </div>
-                                        <div class="jadwal-info">
-                                            <i class="fas fa-users"></i>
-                                            <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
-                                        </div>
-                                        <div class="mt-4">
-                                            <button class="btn btn-outline-primary w-100 btn-detail" 
-                                                    data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
-                                                <i class="fas fa-info-circle me-2"></i> Detail Jadwal
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <!-- Tampilan per hari -->
-                <div class="row">
-                    <?php foreach ($jadwal as $item): ?>
-                    <?php 
-                    // Cek apakah ini jadwal yang sedang berlangsung
-                    $is_current = false;
-                    if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
-                        if ($jadwal_berlangsung['id'] == $item['id']) {
-                            $is_current = true;
-                        }
-                    }
-                    ?>
-                    <div class="col-md-6 col-lg-4 mb-4">
-                        <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
-                            <div class="jadwal-header">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
-                                    <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
-                                </div>
-                                <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
-                            </div>
-                            <div class="jadwal-body">
-                                <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
-                                <div class="jadwal-info">
-                                    <i class="fas fa-user-tie"></i>
-                                    <span><?php echo htmlspecialchars($item['dosen']); ?></span>
-                                </div>
-                                <div class="jadwal-info">
-                                    <i class="fas fa-door-open"></i>
-                                    <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
-                                </div>
-                                <div class="jadwal-info">
-                                    <i class="fas fa-users"></i>
-                                    <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
-                                </div>
-                                <div class="mt-4">
-                                    <button class="btn btn-outline-primary w-100 btn-detail" 
-                                            data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
-                                        <i class="fas fa-info-circle me-2"></i> Detail Jadwal
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-            <?php endif; ?>
+            </div>
         </div>
     </section>
 
@@ -2550,7 +2687,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
     <!-- Inisialisasi Countdown Timer jika ada -->
     <?php if ($jadwal_berikutnya && $waktu_tunggu_detik > 0): ?>
     <script>
-        // Inisialisasi countdown saat halaman selesai dimuat
+        // Inisialisasi countdown saat halaman selesai sdimuat
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof startCountdownTimer === 'function') {
                 startCountdownTimer();

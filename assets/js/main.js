@@ -518,12 +518,12 @@ function setupResponsiveBehavior() {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(function() {
             updateScheduleCardLayout();
-            optimizeMobileLayout();
+            optimizeMobileLayout();   // Panggil saat resize
         }, 250);
     });
     
     updateScheduleCardLayout();
-    optimizeMobileLayout();
+    optimizeMobileLayout();            // Panggil saat pertama kali
 }
 
 function updateScheduleCardLayout() {
@@ -546,101 +546,26 @@ function updateScheduleCardLayout() {
     }
 }
 
-// FUNGSI OPTIMASI MOBILE
+// FUNGSI OPTIMASI MOBILE (diperbarui)
 function optimizeMobileLayout() {
     if (window.innerWidth <= 768) {
         console.log('Optimizing mobile layout...');
-        
-        // 1. Optimasi grid jadwal menjadi 2x2
-        const jadwalRows = document.querySelectorAll('.jadwal-section .row:not(.grid-initialized)');
-        jadwalRows.forEach(row => {
-            row.classList.add('grid-initialized');
-            row.style.display = 'grid';
-            row.style.gridTemplateColumns = 'repeat(2, 1fr)';
-            row.style.gap = '10px';
-            row.style.margin = '0';
-            
-            // Reset semua col classes
-            const cols = row.querySelectorAll('[class*="col-"]');
-            cols.forEach(col => {
-                col.className = 'col-mobile-grid';
-                col.style.width = '100%';
-                col.style.maxWidth = '100%';
-                col.style.flex = '0 0 auto';
-                col.style.padding = '0';
-            });
-        });
-        
-        // 2. Optimasi teks yang terlalu panjang
-        const cards = document.querySelectorAll('.jadwal-card');
-        cards.forEach(card => {
-            // Set tinggi minimal
-            card.style.minHeight = '280px';
-            
-            // Optimasi judul mata kuliah
-            const title = card.querySelector('.jadwal-mata-kuliah');
-            if (title && title.textContent.length > 40) {
-                title.style.fontSize = '0.9rem';
-                title.style.lineHeight = '1.3';
-                title.style.minHeight = '36px';
-                title.style.display = '-webkit-box';
-                title.style.webkitLineClamp = '2';
-                title.style.webkitBoxOrient = 'vertical';
-                title.style.overflow = 'hidden';
-                title.style.textOverflow = 'ellipsis';
-            }
-            
-            // Optimasi nama dosen
-            const dosenElements = card.querySelectorAll('.jadwal-info span');
-            dosenElements.forEach(span => {
-                if (span.textContent.length > 20) {
-                    span.style.display = 'inline-block';
-                    span.style.maxWidth = '120px';
-                    span.style.whiteSpace = 'nowrap';
-                    span.style.overflow = 'hidden';
-                    span.style.textOverflow = 'ellipsis';
-                }
-            });
-            
-            // Optimasi button
-            const button = card.querySelector('.btn-detail');
-            if (button) {
-                button.style.fontSize = '0.8rem';
-                button.style.padding = '8px 12px';
-                button.style.marginTop = 'auto';
+
+        // Pastikan semua teks mata kuliah yang panjang bisa di-scroll
+        document.querySelectorAll('.jadwal-mata-kuliah').forEach(el => {
+            // CSS sudah menangani overflow, tapi kita bisa menambah cursor feedback
+            if (el.scrollWidth > el.clientWidth) {
+                el.style.cursor = 'grab';
+            } else {
+                el.style.cursor = 'default';
             }
         });
-        
-        // 3. Optimasi current/next schedule
-        const currentNext = document.getElementById('currentNextSection');
-        if (currentNext) {
-            const titles = currentNext.querySelectorAll('h4, h5');
-            titles.forEach(title => {
-                if (window.innerWidth <= 400) {
-                    title.style.fontSize = '0.95rem';
-                } else {
-                    title.style.fontSize = '1.1rem';
-                }
-            });
-        }
-        
-        // 4. Optimasi footer
-        const footer = document.querySelector('.footer');
-        if (footer) {
-            footer.style.padding = '25px 0 20px';
-            
-            const footerTexts = footer.querySelectorAll('p, small');
-            footerTexts.forEach(text => {
-                text.style.fontSize = '0.85rem';
-                text.style.lineHeight = '1.4';
-            });
-        }
-        
-        // 5. Tambahkan touch feedback
-        document.querySelectorAll('.filter-tab, .btn, .jadwal-card').forEach(el => {
-            el.style.cursor = 'pointer';
-            el.style.webkitTapHighlightColor = 'transparent';
-        });
+
+        // Cegah overflow horizontal pada body
+        document.body.style.overflowX = 'hidden';
+    } else {
+        // Kembalikan jika desktop
+        document.body.style.overflowX = '';
     }
 }
 
@@ -654,7 +579,6 @@ function escapeHtml(text) {
 
 // Make functions globally available
 window.showScheduleDetail = showScheduleDetail;
-window.toggleSidebar = toggleSidebar;
 window.handleFilterClick = handleFilterTabClick;
 window.applyFilter = applyFilter;
 window.updateFilterUI = updateFilterUI;

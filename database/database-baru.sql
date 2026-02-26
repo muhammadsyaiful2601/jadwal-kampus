@@ -130,24 +130,28 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
 -- ==============================================
 -- TABEL: suggestions (Kritik & Saran) - ditambahkan untuk fitur saran.php
 -- ==============================================
-CREATE TABLE IF NOT EXISTS suggestions (
+DROP TABLE IF EXISTS suggestions;
+
+CREATE TABLE suggestions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100),
     message TEXT NOT NULL,
     ip_address VARCHAR(45),
-    status ENUM('pending', 'read', 'responded') DEFAULT 'pending',
+    status ENUM('pending','read','responded') DEFAULT 'pending',
     response TEXT,
-    responded_by INT,
+    responded_by INT NULL,
     responded_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (responded_by) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_status (status),
     INDEX idx_created_at (created_at),
     INDEX idx_responded_by (responded_by),
     INDEX idx_email (email),
-    INDEX idx_name (name)
+    INDEX idx_name (name),
+    CONSTRAINT fk_suggestions_responder
+        FOREIGN KEY (responded_by) REFERENCES users(id)
+        ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- admin_audit_logs FK (diletakkan setelah semua tabel terkait dibuat)

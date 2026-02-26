@@ -1,136 +1,141 @@
 /* Admin Panel Styles */
 :root {
-    --primary-color: #4a6491;
-    --secondary-color: #2c3e50;
-    --accent-color: #667eea;
-    --danger-color: #f5576c;
-    --success-color: #28a745;
-    --warning-color: #ffc107;
+  --primary-color: #4a6491;
+  --secondary-color: #2c3e50;
+  --accent-color: #667eea;
+  --danger-color: #f5576c;
+  --success-color: #28a745;
+  --warning-color: #ffc107;
 }
 
 /* Table styles for admin */
 .table-actions {
-    min-width: 150px;
+  min-width: 150px;
 }
 
 .btn-action {
-    padding: 4px 8px;
-    margin: 0 2px;
-    font-size: 12px;
+  padding: 4px 8px;
+  margin: 0 2px;
+  font-size: 12px;
 }
 
 /* Form styles */
 .form-card {
-    background: white;
-    border-radius: 15px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-    padding: 30px;
-    margin-bottom: 30px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+  padding: 30px;
+  margin-bottom: 30px;
 }
 
 .form-label {
-    font-weight: 600;
-    color: var(--secondary-color);
+  font-weight: 600;
+  color: var(--secondary-color);
 }
 
 /* Modal custom */
 .modal-xl-custom {
-    max-width: 1200px;
+  max-width: 1200px;
 }
 
 /* File upload */
 .file-upload {
-    border: 2px dashed #ddd;
-    border-radius: 10px;
-    padding: 30px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.3s;
+  border: 2px dashed #ddd;
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
 }
 
 .file-upload:hover {
-    border-color: var(--accent-color);
-    background: rgba(102, 126, 234, 0.05);
+  border-color: var(--accent-color);
+  background: rgba(102, 126, 234, 0.05);
 }
 
 .file-upload.dragover {
-    border-color: var(--success-color);
-    background: rgba(40, 167, 69, 0.1);
+  border-color: var(--success-color);
+  background: rgba(40, 167, 69, 0.1);
 }
 
 /* Status badges */
 .badge-online {
-    background: linear-gradient(135deg, var(--success-color), #20c997);
+  background: linear-gradient(135deg, var(--success-color), #20c997);
 }
 
 .badge-offline {
-    background: linear-gradient(135deg, #6c757d, #495057);
+  background: linear-gradient(135deg, #6c757d, #495057);
 }
 
 .badge-pending {
-    background: linear-gradient(135deg, var(--warning-color), #fd7e14);
+  background: linear-gradient(135deg, var(--warning-color), #fd7e14);
 }
 
 /* Toast notifications */
 .toast-custom {
-    border-radius: 10px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    border: none;
+  border-radius: 10px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+  border: none;
 }
 
 /* Loading overlay */
 .loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(255,255,255,0.9);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
 }
 
 .loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #f3f3f3;
-    border-top: 5px solid var(--accent-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
+  width: 50px;
+  height: 50px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid var(--accent-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive tables */
 @media (max-width: 768px) {
-    .table-responsive {
-        font-size: 14px;
-    }
-    
-    .btn-action {
-        display: block;
-        width: 100%;
-        margin: 5px 0;
-    }
+  .table-responsive {
+    font-size: 14px;
+  }
+
+  .btn-action {
+    display: block;
+    width: 100%;
+    margin: 5px 0;
+  }
 }
 
 /* Print styles */
 @media print {
-    .no-print {
-        display: none !important;
-    }
-    
-    .table {
-        border: 1px solid #000 !important;
-    }
-    
-    th, td {
-        border: 1px solid #000 !important;
-        padding: 5px !important;
-    }
+  .no-print {
+    display: none !important;
+  }
+
+  .table {
+    border: 1px solid #000 !important;
+  }
+
+  th,
+  td {
+    border: 1px solid #000 !important;
+    padding: 5px !important;
+  }
 }
