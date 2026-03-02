@@ -61,6 +61,14 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.1/css/dataTables.bootstrap5.min.css">
     <style>
+        /* === PERBAIKAN UNTUK MOBILE === */
+        html, body {
+            overflow-x: hidden;  /* Cegah scroll horizontal */
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
         .sidebar {
             background: linear-gradient(135deg, #2c3e50, #4a6491);
             color: white;
@@ -127,6 +135,8 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-size: 12px;
             font-weight: bold;
         }
+
+        /* === PERBAIKAN UNTUK MOBILE (LANJUTAN) === */
         @media (max-width: 768px) {
             .sidebar {
                 width: 100%;
@@ -135,6 +145,32 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             .main-content {
                 margin-left: 0;
+                padding-left: 15px;
+                padding-right: 15px;
+            }
+            .card-stat {
+                margin-bottom: 15px;
+            }
+            .btn-lg {
+                font-size: 1rem;
+                padding: 0.5rem 1rem;
+                white-space: normal; /* agar teks panjang bisa turun */
+            }
+            #mobileSidebar .card-body {
+                padding: 0.5rem;
+            }
+            #mobileSidebar .nav-link {
+                padding: 8px 10px;
+                font-size: 14px;
+            }
+            .table-responsive {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            /* Pastikan konten tidak keluar */
+            .container, .container-fluid {
+                padding-left: 10px;
+                padding-right: 10px;
             }
         }
     </style>
@@ -175,7 +211,6 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </a>
                 <a class="nav-link" href="manage_users.php">
                     <i class="fas fa-users"></i> Kelola Admin
-                </a>
                 </a>
                 <a class="nav-link" href="reports.php">
                     <i class="fas fa-chart-bar"></i> Laporan
@@ -245,7 +280,7 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <a class="nav-link" href="manage_semester.php">
                                 <i class="fas fa-calendar-alt"></i> Kelola Semester
                             </a>
-                            <a class="nav-link active" href="manage_settings.php">
+                            <a class="nav-link" href="manage_settings.php">
                                 <i class="fas fa-cog"></i> Pengaturan
                             </a>
                             <a class="nav-link" href="manage_users.php">
@@ -266,9 +301,10 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
 
-            <!-- Stats Cards -->
+            <!-- Stats Cards - 2x2 di mobile, 3+1 di desktop -->
             <div class="row mb-4">
-                <div class="col-md-4 mb-3">
+                <!-- Total Jadwal -->
+                <div class="col-6 col-md-4 mb-3">
                     <div class="card card-stat border-primary">
                         <div class="card-body">
                             <div class="d-flex justify-content-between">
@@ -283,7 +319,8 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
                 </div>
-                <div class="col-md-4 mb-3">
+                <!-- Total Ruangan -->
+                <div class="col-6 col-md-4 mb-3">
                     <div class="card card-stat border-success">
                         <div class="card-body">
                             <div class="d-flex justify-content-between">
@@ -298,7 +335,8 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
                 </div>
-                <div class="col-md-4 mb-3">
+                <!-- Total Kelas -->
+                <div class="col-6 col-md-4 mb-3">
                     <div class="card card-stat border-warning">
                         <div class="card-body">
                             <div class="d-flex justify-content-between">
@@ -313,7 +351,8 @@ $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
                 </div>
-                <div class="col-md-4 mb-3">
+                <!-- Kritik & Saran -->
+                <div class="col-6 col-md-4 mb-3">
                     <a href="saran.php" style="text-decoration: none;">
                         <div class="card card-stat border-danger position-relative">
                             <div class="maintenance-badge">
