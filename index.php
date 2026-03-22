@@ -160,49 +160,49 @@ if ($hari_filter_berikutnya) {
                       WHERE hari = ? 
                       AND tahun_akademik = ? 
                       AND semester = ? ";
-        
+
         // Tambahkan filter kelas jika tidak null
         $params = [$hari_filter_berikutnya, $tahun_akademik, $semester_aktif];
         if ($kelas_filter) {
             $query_base .= " AND kelas = ? ";
             $params[] = $kelas_filter;
         }
-        
+
         // 1. Cari jadwal yang sedang berlangsung
         $query_berlangsung = $query_base . " AND ? BETWEEN 
                           SUBSTRING_INDEX(waktu, ' - ', 1) AND 
                           SUBSTRING_INDEX(waktu, ' - ', -1)
                       ORDER BY jam_ke
                       LIMIT 1";
-        
+
         $params_berlangsung = array_merge($params, [$jam_sekarang]);
         $stmt_berlangsung = $db->prepare($query_berlangsung);
         $stmt_berlangsung->execute($params_berlangsung);
         $jadwal_berlangsung = $stmt_berlangsung->fetch(PDO::FETCH_ASSOC);
-        
+
         // PERUBAHAN 2: JADWAL BERIKUTNYA DICARI HANYA BERDASARKAN KELAS
         // Mulai pencarian dari hari ini, lalu hari-hari berikutnya
         $hari_order = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
         $current_index = array_search($hari_filter_berikutnya, $hari_order);
-        
+
         // Loop maksimal 5 hari (Senin-Jumat)
         for ($i = 0; $i < 5; $i++) {
             $next_index = ($current_index + $i) % 5;
             $next_day = $hari_order[$next_index];
-            
+
             $query_next_day = "SELECT * FROM schedules 
                       WHERE hari = ? 
                       AND tahun_akademik = ? 
                       AND semester = ? ";
-            
+
             $params_next_day = [$next_day, $tahun_akademik, $semester_aktif];
-            
+
             // Filter kelas hanya jika kelas tertentu dipilih
             if ($kelas_filter) {
                 $query_next_day .= " AND kelas = ? ";
                 $params_next_day[] = $kelas_filter;
             }
-            
+
             // Jika ini hari yang sama dengan hari ini, cari yang waktu mulai > jam sekarang
             if ($i == 0) {
                 $query_next_day .= " AND SUBSTRING_INDEX(waktu, ' - ', 1) > ?
@@ -214,22 +214,22 @@ if ($hari_filter_berikutnya) {
                 $query_next_day .= " ORDER BY SUBSTRING_INDEX(waktu, ' - ', 1)
                           LIMIT 1";
             }
-            
+
             $stmt_next_day = $db->prepare($query_next_day);
             $stmt_next_day->execute($params_next_day);
             $jadwal_next_day = $stmt_next_day->fetch(PDO::FETCH_ASSOC);
-            
+
             if ($jadwal_next_day) {
                 $jadwal_berikutnya = $jadwal_next_day;
                 $target_hari = $next_day;
                 $selisih_hari = $i;
-                
+
                 // Hitung waktu tunggu
                 if (strpos($jadwal_next_day['waktu'], ' - ') !== false) {
                     $waktu_parts = explode(' - ', $jadwal_next_day['waktu']);
                     if (count($waktu_parts) >= 2) {
                         $waktu_mulai = $waktu_parts[0];
-                        
+
                         // Parsing waktu_mulai dengan validasi
                         $waktu_mulai_parts = explode(':', $waktu_mulai);
                         if (count($waktu_mulai_parts) >= 2) {
@@ -239,7 +239,7 @@ if ($hari_filter_berikutnya) {
                             $jam_mulai = 0;
                             $menit_mulai = 0;
                         }
-                        
+
                         // Waktu sekarang
                         $jam_sekarang_clean = str_replace('.', ':', $jam_sekarang);
                         $jam_sekarang_parts = explode(':', $jam_sekarang_clean);
@@ -250,14 +250,26 @@ if ($hari_filter_berikutnya) {
                             $jam_sekarang_int = (int) date('H');
                             $menit_sekarang_int = (int) date('i');
                         }
-                        
+
                         // Hitung waktu target (hari ini + selisih hari)
-                        $waktu_target = mktime($jam_mulai, $menit_mulai, 0, 
-                                              date('m'), date('d') + $selisih_hari, date('Y'));
-                        $waktu_sekarang = mktime($jam_sekarang_int, $menit_sekarang_int, 0, 
-                                                date('m'), date('d'), date('Y'));
+                        $waktu_target = mktime(
+                            $jam_mulai,
+                            $menit_mulai,
+                            0,
+                            date('m'),
+                            date('d') + $selisih_hari,
+                            date('Y')
+                        );
+                        $waktu_sekarang = mktime(
+                            $jam_sekarang_int,
+                            $menit_sekarang_int,
+                            0,
+                            date('m'),
+                            date('d'),
+                            date('Y')
+                        );
                         $waktu_tunggu_detik = $waktu_target - $waktu_sekarang;
-                        
+
                         // Pastikan waktu tunggu tidak negatif
                         if ($waktu_tunggu_detik < 0) {
                             $waktu_tunggu_detik = 0;
@@ -267,7 +279,6 @@ if ($hari_filter_berikutnya) {
                 break; // Keluar dari loop setelah menemukan jadwal berikutnya
             }
         }
-        
     } catch (Exception $e) {
         error_log("Error mencari jadwal saat ini: " . $e->getMessage());
     }
@@ -283,21 +294,20 @@ if ($tampil_semua_hari && !$jadwal_berlangsung) {
                           AND ? BETWEEN 
                               SUBSTRING_INDEX(waktu, ' - ', 1) AND 
                               SUBSTRING_INDEX(waktu, ' - ', -1) ";
-        
+
         $params_all_days = [$tahun_akademik, $semester_aktif, $jam_sekarang];
-        
+
         if ($kelas_filter) {
             $query_all_days .= " AND kelas = ? ";
             $params_all_days[] = $kelas_filter;
         }
-        
+
         $query_all_days .= " ORDER BY FIELD(hari, 'SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'), jam_ke
                           LIMIT 1";
-        
+
         $stmt_all_days = $db->prepare($query_all_days);
         $stmt_all_days->execute($params_all_days);
         $jadwal_berlangsung = $stmt_all_days->fetch(PDO::FETCH_ASSOC);
-        
     } catch (Exception $e) {
         error_log("Error mencari jadwal semua hari: " . $e->getMessage());
     }
@@ -310,7 +320,7 @@ try {
     $stmt_ruangan = $db->prepare($query_ruangan);
     $stmt_ruangan->execute();
     $ruangan_data = $stmt_ruangan->fetchAll(PDO::FETCH_ASSOC);
-    
+
     foreach ($ruangan_data as $ruang) {
         $ruangan_map[$ruang['nama_ruang']] = $ruang;
     }
@@ -331,9 +341,9 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
 ?>
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <meta charset="UTF-8">
-    <!-- PERUBAHAN: tambahkan user-scalable=no untuk menonaktifkan zoom di mobile -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Jadwal Kuliah - <?php echo htmlspecialchars($institusi_nama); ?></title>
     <link rel="icon" type="image/png" href="assets/images/si.png">
@@ -355,13 +365,13 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             --light: #f8f9fa;
             --blur-intensity: 0.3;
         }
-        
+
         body {
             font-family: 'Poppins', sans-serif;
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
         }
-        
+
         .hero-header {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             padding: 40px 0;
@@ -369,7 +379,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
         }
-        
+
         .hero-header::before {
             content: '';
             position: absolute;
@@ -380,7 +390,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             background: rgba(255, 255, 255, 0.1);
             border-radius: 50%;
         }
-        
+
         .logo-container {
             background: white;
             border-radius: 20px;
@@ -388,29 +398,29 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
         }
-        
+
         .logo-container:hover {
             transform: translateY(-5px);
         }
-        
+
         .header-info {
             color: white;
             text-align: center;
         }
-        
+
         .header-info h1 {
             font-weight: 800;
             font-size: 2.5rem;
             margin-bottom: 10px;
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         }
-        
+
         .header-info h2 {
             font-weight: 600;
             font-size: 1.5rem;
             opacity: 0.9;
         }
-        
+
         .info-badge {
             background: rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
@@ -419,13 +429,13 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             display: inline-block;
             margin-top: 15px;
         }
-        
+
         .filter-section {
             margin-top: -30px;
             position: relative;
             z-index: 10;
         }
-        
+
         .filter-card {
             background: white;
             border-radius: 20px;
@@ -434,14 +444,14 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border: 1px solid rgba(255, 255, 255, 0.3);
             backdrop-filter: blur(10px);
         }
-        
+
         .filter-tabs {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             margin-bottom: 20px;
         }
-        
+
         .filter-tab {
             padding: 12px 25px;
             border-radius: 50px;
@@ -456,23 +466,23 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             gap: 8px;
             user-select: none;
         }
-        
+
         .filter-tab:hover {
             border-color: var(--primary);
             transform: translateY(-2px);
         }
-        
+
         .filter-tab.active {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             border-color: white;
             box-shadow: 0 8px 20px rgba(67, 97, 238, 0.3);
         }
-        
+
         .filter-tab input {
             display: none;
         }
-        
+
         .jadwal-card {
             background: white;
             border-radius: 20px;
@@ -482,24 +492,24 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border: 2px solid transparent;
             height: 100%;
         }
-        
+
         .jadwal-card:hover {
             transform: translateY(-10px);
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
             border-color: var(--primary-light);
         }
-        
+
         .jadwal-card.active {
             border-color: var(--success);
             box-shadow: 0 0 25px rgba(76, 201, 240, 0.3);
         }
-        
+
         .jadwal-header {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             padding: 20px;
         }
-        
+
         .jadwal-time {
             background: rgba(255, 255, 255, 0.2);
             padding: 8px 15px;
@@ -507,11 +517,11 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             display: inline-block;
             font-weight: 600;
         }
-        
+
         .jadwal-body {
             padding: 25px;
         }
-        
+
         .jadwal-mata-kuliah {
             font-weight: 700;
             font-size: 1.3rem;
@@ -519,7 +529,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             margin-bottom: 15px;
             line-height: 1.4;
         }
-        
+
         .jadwal-info {
             display: flex;
             align-items: center;
@@ -527,12 +537,12 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             margin-bottom: 12px;
             color: #666;
         }
-        
+
         .jadwal-info i {
             color: var(--primary);
             width: 20px;
         }
-        
+
         .current-jadwal {
             background: linear-gradient(135deg, #4cc9f0, #4895ef);
             color: white;
@@ -544,25 +554,33 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             display: flex;
             flex-direction: column;
         }
-        
+
         @keyframes pulse-glow {
-            0% { box-shadow: 0 0 20px rgba(76, 201, 240, 0.5); }
-            50% { box-shadow: 0 0 30px rgba(76, 201, 240, 0.8); }
-            100% { box-shadow: 0 0 20px rgba(76, 201, 240, 0.5); }
+            0% {
+                box-shadow: 0 0 20px rgba(76, 201, 240, 0.5);
+            }
+
+            50% {
+                box-shadow: 0 0 30px rgba(76, 201, 240, 0.8);
+            }
+
+            100% {
+                box-shadow: 0 0 20px rgba(76, 201, 240, 0.5);
+            }
         }
-        
+
         .current-jadwal-header {
             background: rgba(0, 0, 0, 0.1);
             padding: 20px;
         }
-        
+
         .current-jadwal-body {
             padding: 25px;
             flex: 1;
             display: flex;
             flex-direction: column;
         }
-        
+
         .next-jadwal {
             background: linear-gradient(135deg, #3a0ca3, #7209b7);
             color: white;
@@ -573,23 +591,23 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             display: flex;
             flex-direction: column;
         }
-        
+
         .next-jadwal-header {
             background: rgba(0, 0, 0, 0.1);
             padding: 20px;
         }
-        
+
         .next-jadwal-body {
             padding: 25px;
             flex: 1;
             display: flex;
             flex-direction: column;
         }
-        
+
         .hari-section {
             margin-bottom: 40px;
         }
-        
+
         .hari-title {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
@@ -600,7 +618,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .jadwal-count {
             background: white;
             color: var(--primary);
@@ -608,19 +626,19 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border-radius: 50px;
             font-weight: 600;
         }
-        
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
         }
-        
+
         .empty-state i {
             font-size: 4rem;
             color: #ddd;
             margin-bottom: 20px;
         }
-        
-        /* Countdown Timer Styles - DIPERBAIKI */
+
+        /* Countdown Timer Styles */
         .countdown-container {
             background: rgba(0, 0, 0, 0.2);
             border-radius: 15px;
@@ -629,7 +647,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        
+
         .countdown-timer {
             font-family: 'Courier New', monospace;
             font-weight: 700;
@@ -638,7 +656,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             gap: 10px;
             flex-wrap: wrap;
         }
-        
+
         .countdown-unit {
             background: rgba(255, 255, 255, 0.2);
             padding: 8px 12px;
@@ -649,26 +667,26 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border: 1px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
         }
-        
+
         .countdown-unit:hover {
             background: rgba(255, 255, 255, 0.3);
             transform: translateY(-2px);
         }
-        
-        .countdown-unit > div:first-child {
+
+        .countdown-unit>div:first-child {
             font-size: 1.5rem;
             font-weight: 800;
             color: white;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
-        
+
         .countdown-label {
             font-size: 0.8rem;
             opacity: 0.8;
             color: rgba(255, 255, 255, 0.9);
             margin-top: 3px;
         }
-        
+
         .next-day-info {
             background: rgba(255, 193, 7, 0.2);
             border-radius: 10px;
@@ -677,25 +695,23 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border-left: 4px solid #ffc107;
             color: white;
         }
-        
+
         .next-day-info strong {
             color: #ffc107;
         }
-        
-        /* Current Schedule Layout */
+
         .current-next-section .row {
             display: flex;
             flex-wrap: wrap;
             margin-left: -10px;
             margin-right: -10px;
         }
-        
+
         .current-next-section .col-md-6 {
             padding-left: 10px;
             padding-right: 10px;
         }
-        
-        /* Card Height Adjustment */
+
         .no-ongoing-schedule,
         .no-next-schedule {
             min-height: 280px;
@@ -704,16 +720,14 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             justify-content: center;
             align-items: center;
         }
-        
-        /* ==================================================== */
-        /* RUNNING TEXT YANG DIPERBAIKI - KECEPATAN KONSISTEN & SMOOTH */
-        /* ==================================================== */
+
+        /* Running Text */
         .running-text-section {
             padding: 5px 0;
             position: relative;
             z-index: 5;
         }
-        
+
         .running-text-container {
             background-color: <?php echo $running_text_bg_color; ?>;
             color: <?php echo $running_text_color; ?>;
@@ -722,7 +736,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             overflow: hidden;
             position: relative;
             width: 100%;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
         }
 
         .running-text-container::before {
@@ -732,7 +746,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             left: 0;
             width: 80px;
             height: 100%;
-            background: linear-gradient(to right, rgba(255,255,255,var(--blur-intensity)), transparent);
+            background: linear-gradient(to right, rgba(255, 255, 255, var(--blur-intensity)), transparent);
             z-index: 2;
             pointer-events: none;
         }
@@ -744,7 +758,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             right: 0;
             width: 80px;
             height: 100%;
-            background: linear-gradient(to left, rgba(255,255,255,var(--blur-intensity)), transparent);
+            background: linear-gradient(to left, rgba(255, 255, 255, var(--blur-intensity)), transparent);
             z-index: 2;
             pointer-events: none;
         }
@@ -757,10 +771,6 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             will-change: transform;
             backface-visibility: hidden;
             transform: translateZ(0);
-            -webkit-transform: translateZ(0);
-            -moz-transform: translateZ(0);
-            -ms-transform: translateZ(0);
-            -o-transform: translateZ(0);
             padding: 0 20px;
             transform-style: preserve-3d;
         }
@@ -790,28 +800,30 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             animation: pulse-icon 2s infinite ease-in-out;
         }
 
-        /* Animasi utama - KEJARANGAN SAMA untuk desktop dan mobile */
         @keyframes marquee {
             0% {
                 transform: translateX(0);
             }
+
             100% {
                 transform: translateX(-50%);
             }
         }
 
         @keyframes pulse-icon {
-            0%, 100% { 
-                transform: scale(1); 
+
+            0%,
+            100% {
+                transform: scale(1);
                 opacity: 0.9;
             }
-            50% { 
-                transform: scale(1.1); 
+
+            50% {
+                transform: scale(1.1);
                 opacity: 1;
             }
         }
 
-        /* Kecepatan yang KONSISTEN di desktop dan mobile */
         .running-text-wrapper.slow {
             animation-duration: 40s;
         }
@@ -824,26 +836,22 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             animation-duration: 15s;
         }
 
-        /* Optimasi untuk browser WebKit (Chrome, Safari) */
         @media (-webkit-min-device-pixel-ratio: 2) {
             .running-text-wrapper {
                 -webkit-font-smoothing: antialiased;
                 -moz-osx-font-smoothing: grayscale;
             }
         }
-        
-        /* Info Box */
+
         .info-box {
             border-left: 4px solid var(--primary);
             background: rgba(67, 97, 238, 0.05) !important;
         }
-        
-        /* Mobile Header */
+
         .mobile-header {
             display: none;
         }
-        
-        /* Sidebar Mobile */
+
         .sidebar-filter {
             position: fixed;
             top: 0;
@@ -856,11 +864,11 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             box-shadow: 5px 0 25px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
         }
-        
+
         .sidebar-filter.show {
             left: 0;
         }
-        
+
         .overlay {
             position: fixed;
             top: 0;
@@ -871,69 +879,73 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             z-index: 1049;
             display: none;
         }
-        
+
         .overlay.show {
             display: block;
         }
-        
+
         .sidebar-header {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
         }
-        
+
         .sidebar-body {
             max-height: calc(100vh - 120px);
             overflow-y: auto;
         }
-        
+
         .sidebar-footer {
             position: sticky;
             bottom: 0;
             background: white;
         }
-        
+
         .filter-toggle-btn {
             background: rgba(255, 255, 255, 0.2) !important;
             color: white !important;
             border: 1px solid rgba(255, 255, 255, 0.3) !important;
         }
-        
+
         .filter-toggle-btn:hover {
             background: rgba(255, 255, 255, 0.3) !important;
         }
-        
-        /* Current Schedule Toggle */
+
         .current-next-section {
             transition: all 0.3s ease;
         }
-        
+
         .collapsed-section {
             opacity: 0.7;
         }
-        
+
         .collapsed-section #currentScheduleContent {
             display: none;
         }
-        
-        /* Responsive Filter Tabs di Sidebar */
+
         #filter-hari-mobile .filter-tab,
         #filter-kelas-mobile .filter-tab {
             width: 100%;
             justify-content: flex-start;
         }
-        
-        /* Countdown Animation */
+
         @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
         }
-        
+
         #countdownTimer {
             animation: pulse 2s infinite;
         }
-        
-        /* Filter indicator */
+
         .filter-indicator {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
@@ -944,16 +956,15 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             align-items: center;
             margin-right: 10px;
         }
-        
+
         .filter-indicator i {
             margin-right: 5px;
         }
-        
+
         .filter-indicator.active {
             background: var(--success);
         }
-        
-        /* Current schedule filter info */
+
         .current-filter-info {
             background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
@@ -961,8 +972,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             margin-bottom: 15px;
             border-left: 3px solid var(--primary);
         }
-        
-        /* Filter info display */
+
         .filter-info-display {
             margin-top: 15px;
             padding: 10px;
@@ -970,36 +980,32 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             border-radius: 10px;
             border-left: 3px solid var(--primary);
         }
-        
-        /* Highlight jadwal sesuai filter */
+
         .jadwal-card.filter-match {
             border-color: var(--primary);
             box-shadow: 0 0 15px rgba(67, 97, 238, 0.2);
         }
-        
-        /* Kritik & Saran Modal */
+
         #suggestionModal .modal-content {
             border-radius: 20px;
             overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
         }
-        
+
         #suggestionModal .modal-header {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
         }
-        
+
         #suggestionModal .form-control:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
         }
-        
-        /* Navbar Notifications */
+
         .nav-link .badge {
             font-size: 0.6rem;
             padding: 0.25em 0.5em;
         }
-        
-        /* Kritik & Saran Button */
+
         .suggestion-btn {
             background: linear-gradient(135deg, #f72585, #b5179e);
             color: white;
@@ -1010,188 +1016,183 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             transition: all 0.3s ease;
             box-shadow: 0 5px 15px rgba(247, 37, 133, 0.3);
         }
-        
+
         .suggestion-btn:hover {
             transform: translateY(-3px);
             box-shadow: 0 8px 20px rgba(247, 37, 133, 0.4);
             color: white;
         }
-        
+
         .suggestion-btn:active {
             transform: translateY(-1px);
         }
-        
-        /* ==================================================== */
-        /* RESPONSIVE ADJUSTMENTS - DIPERBAIKI */
-        /* ==================================================== */
+
+        /* Responsive Adjustments */
         @media (max-width: 768px) {
             .desktop-header {
                 display: none !important;
             }
-            
+
             .mobile-header {
                 display: block !important;
             }
-            
+
             .hero-header {
                 padding: 20px 0 !important;
             }
-            
+
             .filter-section {
                 display: none;
             }
-            
+
             .current-jadwal-body,
             .next-jadwal-body {
                 padding: 20px !important;
             }
-            
+
             .jadwal-section {
                 padding: 20px 0;
             }
-            
+
             .jadwal-card {
                 margin-bottom: 15px;
             }
-            
+
             .header-info h1 {
                 font-size: 1.8rem;
             }
-            
+
             .header-info h2 {
                 font-size: 1.2rem;
             }
-            
+
             .filter-tab {
                 padding: 10px 20px;
                 font-size: 14px;
             }
-            
+
             .jadwal-card {
                 margin-bottom: 20px;
             }
-            
+
             .countdown-container {
                 padding: 10px;
             }
-            
+
             .countdown-unit {
                 padding: 3px 8px;
                 min-width: 40px;
                 font-size: 0.9rem;
             }
-            
+
             .filter-indicator {
                 font-size: 0.8rem;
                 padding: 6px 12px;
             }
-            
+
             .current-filter-info {
                 font-size: 0.9rem;
                 padding: 8px;
             }
-            
+
             #suggestionModal .modal-dialog {
                 margin: 10px;
             }
-            
+
             .nav-link .badge {
                 font-size: 0.5rem;
                 padding: 0.2em 0.4em;
             }
-            
+
             .suggestion-btn {
                 padding: 10px 20px;
                 font-size: 14px;
             }
-            
-            /* RUNNING TEXT RESPONSIVE - KECEPATAN TETAP SAMA */
+
             .running-text-container {
                 padding: 10px 0;
                 margin: 12px 0;
             }
-            
+
             .running-text-container::before,
             .running-text-container::after {
                 width: 60px;
             }
-            
+
             .running-text-item {
                 padding: 0 25px;
             }
-            
+
             .running-text-content {
                 font-size: 0.95rem;
                 gap: 10px;
             }
-            
+
             .running-text-content i {
                 font-size: 1.1rem;
             }
-            
-            /* KEJARANGAN SAMA PERSIS DENGAN DESKTOP */
+
             .running-text-wrapper.slow {
                 animation-duration: 40s !important;
             }
-            
+
             .running-text-wrapper.normal {
                 animation-duration: 25s !important;
             }
-            
+
             .running-text-wrapper.fast {
                 animation-duration: 15s !important;
             }
         }
-        
+
         @media (max-width: 576px) {
             .hero-header {
                 padding: 30px 0;
             }
-            
+
             .filter-tabs {
                 flex-direction: column;
             }
-            
+
             .filter-tab {
                 width: 100%;
                 justify-content: center;
             }
-            
+
             .current-next-section {
                 margin-top: 10px;
             }
-            
+
             .no-schedule {
                 padding: 20px !important;
             }
-            
+
             #countdownTimer {
                 font-size: 0.8rem;
                 margin-top: 5px;
             }
-            
+
             .countdown-unit {
                 min-width: 40px !important;
                 font-size: 0.8rem;
             }
-            
-            /* RUNNING TEXT MOBILE KECIL */
+
             .running-text-content {
                 font-size: 0.9rem;
                 gap: 8px;
             }
-            
+
             .running-text-content i {
                 font-size: 1rem;
             }
-            
+
             .running-text-item {
                 padding: 0 20px;
             }
         }
-        
-        /* Print styles */
+
         @media print {
+
             .current-next-section,
             .filter-section,
             .filter-toggle-btn,
@@ -1201,27 +1202,27 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 display: none !important;
             }
         }
-        
-        /* Tambahan CSS untuk feedback loading */
+
         .filter-tab:active {
             transform: scale(0.98);
         }
-        
+
         .filter-tab.loading {
             opacity: 0.7;
             cursor: wait;
         }
-        
+
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
-        
-        /* Jadwal berlangsung highlight */
+
         .jadwal-berlangsung-highlight {
             position: relative;
             overflow: hidden;
         }
-        
+
         .jadwal-berlangsung-highlight::before {
             content: '';
             position: absolute;
@@ -1232,18 +1233,17 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             background: var(--success);
             border-radius: 4px 0 0 4px;
         }
-        
-        /* Info card dalam modal */
+
         .info-card {
             transition: all 0.3s ease;
-            border: 1px solid rgba(0,0,0,0.1);
+            border: 1px solid rgba(0, 0, 0, 0.1);
         }
-        
+
         .info-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
         }
-        
+
         .info-icon {
             width: 50px;
             height: 50px;
@@ -1252,27 +1252,30 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             justify-content: center;
             transition: all 0.3s ease;
         }
-        
+
         .info-card:hover .info-icon {
             transform: scale(1.1);
         }
-        
-        /* Animation for filter tabs */
+
         @keyframes filterPulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
         }
-        
+
         .filter-tab.active {
             animation: filterPulse 0.5s ease;
         }
 
-        /* ==================================================== */
-        /* PERBAIKAN UNTUK MOBILE (TIDAK MELEBAR & TABEL SCROLL) */
-        /* ==================================================== */
-
-        /* Perbaikan kartu agar tidak melebar */
+        /* Mobile table styles */
         .jadwal-card {
             width: 100%;
             max-width: 100%;
@@ -1287,20 +1290,19 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
 
         .jadwal-info span {
             word-break: break-word;
-            white-space: normal; /* mengatasi white-space: nowrap yang mungkin diterapkan */
+            white-space: normal;
         }
 
-        /* Styling tabel mobile */
         .jadwal-table-view .table-responsive {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
             border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
 
         .jadwal-table {
             font-size: 0.8rem;
-            min-width: 800px; /* memastikan tabel cukup lebar untuk memicu scroll */
+            min-width: 800px;
             margin-bottom: 0;
         }
 
@@ -1308,7 +1310,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         .jadwal-table td {
             padding: 0.5rem;
             vertical-align: middle;
-            white-space: nowrap; /* konten tidak wrap, memicu scroll horizontal */
+            white-space: nowrap;
         }
 
         .jadwal-table td {
@@ -1322,66 +1324,65 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             font-size: 0.7rem;
         }
 
-        /* Sembunyikan grid di mobile, tampilkan di desktop */
         @media (max-width: 767.98px) {
             .jadwal-grid-view {
                 display: none !important;
             }
+
             .jadwal-table-view {
                 display: block !important;
             }
         }
+
         @media (min-width: 768px) {
             .jadwal-grid-view {
                 display: block !important;
             }
+
             .jadwal-table-view {
                 display: none !important;
             }
         }
     </style>
 </head>
+
 <body class="<?php echo $is_maintenance ? 'maintenance-active' : ''; ?>" data-ruangan='<?php echo json_encode($ruangan_map); ?>'>
     <!-- Maintenance Modal -->
     <?php if ($is_maintenance): ?>
-    <div class="maintenance-modal" id="maintenanceModal">
-        <div class="maintenance-content">
-            <div class="maintenance-icon">
-                <i class="fas fa-tools"></i>
-            </div>
-            <h2>Sistem Sedang Dalam Perawatan</h2>
-            <p class="maintenance-message"><?php echo htmlspecialchars($maintenance_message); ?></p>
-            <div class="maintenance-info">
-                <i class="fas fa-clock me-2"></i>
-                <span><?php echo date('d F Y, H:i'); ?></span>
+        <div class="maintenance-modal" id="maintenanceModal">
+            <div class="maintenance-content">
+                <div class="maintenance-icon">
+                    <i class="fas fa-tools"></i>
+                </div>
+                <h2>Sistem Sedang Dalam Perawatan</h2>
+                <p class="maintenance-message"><?php echo htmlspecialchars($maintenance_message); ?></p>
+                <div class="maintenance-info">
+                    <i class="fas fa-clock me-2"></i>
+                    <span><?php echo date('d F Y, H:i'); ?></span>
+                </div>
             </div>
         </div>
-    </div>
     <?php endif; ?>
 
     <!-- Header -->
     <header class="hero-header">
         <div class="container">
             <div class="row align-items-center">
-                <!-- Desktop Logo Kiri -->
                 <div class="col-md-3 text-center mb-4 mb-md-0 desktop-header">
                     <div class="logo-container">
-                        <img src="assets/images/logo_kampus.png" alt="Logo Kampus" class="img-fluid" 
-                             style="max-height: 100px;"
-                             onerror="this.onerror=null; this.src='https://via.placeholder.com/100x100/4361ee/ffffff?text=LOGO'">
+                        <img src="assets/images/logo_kampus.png" alt="Logo Kampus" class="img-fluid"
+                            style="max-height: 100px;"
+                            onerror="this.onerror=null; this.src='https://via.placeholder.com/100x100/4361ee/ffffff?text=LOGO'">
                     </div>
                 </div>
-                
-                <!-- Mobile Header -->
+
                 <div class="mobile-header">
                     <div class="d-flex justify-content-between align-items-center w-100">
-                        <!-- Logo Kiri Mobile -->
                         <div class="logo-container" style="width: 60px; height: 60px; padding: 8px;">
                             <img src="assets/images/logo_kampus.png" alt="Logo Kampus" class="img-fluid"
-                                 onerror="this.onerror=null; this.src='https://via.placeholder.com/60x60/4361ee/ffffff?text=LOGO'">
+                                onerror="this.onerror=null; this.src='https://via.placeholder.com/60x60/4361ee/ffffff?text=LOGO'">
                         </div>
-                        
-                        <!-- Judul Mobile -->
+
                         <div class="header-text text-center mx-2">
                             <h1 style="font-size: 1.2rem; font-weight: 700; color: white; margin-bottom: 5px;">
                                 <?php echo htmlspecialchars($institusi_nama); ?>
@@ -1390,23 +1391,20 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                 <?php echo htmlspecialchars($institusi_lokasi); ?>
                             </p>
                         </div>
-                        
-                        <!-- Logo Kanan Mobile -->
+
                         <div class="logo-container" style="width: 60px; height: 60px; padding: 8px;">
                             <img src="assets/images/logo_jurusan.png" alt="Logo Jurusan" class="img-fluid"
-                                 onerror="this.onerror=null; this.src='https://via.placeholder.com/60x60/3a0ca3/ffffff?text=SI'">
+                                onerror="this.onerror=null; this.src='https://via.placeholder.com/60x60/3a0ca3/ffffff?text=SI'">
                         </div>
                     </div>
-                    
-                    <!-- Tombol Filter Mobile -->
+
                     <div class="text-center mt-3">
                         <button class="btn btn-light btn-sm filter-toggle-btn">
                             <i class="fas fa-filter me-2"></i> Filter Jadwal
                         </button>
                     </div>
                 </div>
-                
-                <!-- Info Tengah (Desktop) -->
+
                 <div class="col-md-6 desktop-header">
                     <div class="header-info">
                         <h1><?php echo htmlspecialchars($institusi_nama); ?></h1>
@@ -1417,13 +1415,12 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                         </div>
                     </div>
                 </div>
-                
-                <!-- Desktop Logo Kanan -->
+
                 <div class="col-md-3 text-center mt-4 mt-md-0 desktop-header">
                     <div class="logo-container">
                         <img src="assets/images/logo_jurusan.png" alt="Logo Jurusan" class="img-fluid"
-                             style="max-height: 100px;"
-                             onerror="this.onerror=null; this.src='https://via.placeholder.com/100x100/3a0ca3/ffffff?text=SI'">
+                            style="max-height: 100px;"
+                            onerror="this.onerror=null; this.src='https://via.placeholder.com/100x100/3a0ca3/ffffff?text=SI'">
                     </div>
                 </div>
             </div>
@@ -1439,53 +1436,51 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             <button class="btn btn-close btn-close-white"></button>
         </div>
         <div class="sidebar-body p-3">
-            <!-- Filter Hari -->
             <div class="mb-4">
                 <h6 class="mb-3">
                     <i class="fas fa-calendar-day me-2"></i> Pilih Hari
                 </h6>
                 <div class="filter-tabs" id="filter-hari-mobile">
                     <?php foreach ($hari_map as $num => $hari): ?>
-                    <label class="filter-tab <?php echo (!$tampil_semua_hari && $hari_selected == $num) ? 'active' : ''; ?>" 
-                           data-type="hari" data-value="<?php echo $num; ?>">
-                        <i class="fas fa-calendar-day"></i> <?php echo $hari; ?>
-                    </label>
+                        <label class="filter-tab <?php echo (!$tampil_semua_hari && $hari_selected == $num) ? 'active' : ''; ?>"
+                            data-type="hari" data-value="<?php echo $num; ?>">
+                            <i class="fas fa-calendar-day"></i> <?php echo $hari; ?>
+                        </label>
                     <?php endforeach; ?>
-                    
-                    <label class="filter-tab <?php echo $tampil_semua_hari ? 'active' : ''; ?>" 
-                           data-type="semua_hari" data-value="1">
+
+                    <label class="filter-tab <?php echo $tampil_semua_hari ? 'active' : ''; ?>"
+                        data-type="semua_hari" data-value="1">
                         <i class="fas fa-calendar-week"></i> Semua Hari
                     </label>
                 </div>
             </div>
-            
-            <!-- Filter Kelas -->
+
             <div class="mb-4">
                 <h6 class="mb-3">
                     <i class="fas fa-users me-2"></i> Pilih Kelas
                 </h6>
                 <?php if (!empty($kelas_list)): ?>
-                <div class="filter-tabs" id="filter-kelas-mobile">
-                    <?php foreach ($kelas_list as $kelas): ?>
-                    <label class="filter-tab <?php echo (!$tampil_semua_kelas && $kelas_selected == $kelas) ? 'active' : ''; ?>"
-                           data-type="kelas" data-value="<?php echo htmlspecialchars($kelas); ?>">
-                        <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($kelas); ?>
-                    </label>
-                    <?php endforeach; ?>
-                    
-                    <label class="filter-tab <?php echo $tampil_semua_kelas ? 'active' : ''; ?>"
-                           data-type="semua_kelas" data-value="1">
-                        <i class="fas fa-layer-group"></i> Semua Kelas
-                    </label>
-                </div>
+                    <div class="filter-tabs" id="filter-kelas-mobile">
+                        <?php foreach ($kelas_list as $kelas): ?>
+                            <label class="filter-tab <?php echo (!$tampil_semua_kelas && $kelas_selected == $kelas) ? 'active' : ''; ?>"
+                                data-type="kelas" data-value="<?php echo htmlspecialchars($kelas); ?>">
+                                <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($kelas); ?>
+                            </label>
+                        <?php endforeach; ?>
+
+                        <label class="filter-tab <?php echo $tampil_semua_kelas ? 'active' : ''; ?>"
+                            data-type="semua_kelas" data-value="1">
+                            <i class="fas fa-layer-group"></i> Semua Kelas
+                        </label>
+                    </div>
                 <?php else: ?>
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    Tidak ada kelas tersedia
-                </div>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Tidak ada kelas tersedia
+                    </div>
                 <?php endif; ?>
             </div>
-            
+
             <div class="sidebar-footer p-3 border-top">
                 <button class="btn btn-primary w-100 mb-2" onclick="handleShowAllSchedule()">
                     <i class="fas fa-eye me-2"></i> Tampilkan Semua
@@ -1508,7 +1503,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                             <i class="fas fa-filter me-2 text-primary"></i> Filter Jadwal
                         </h3>
                         <p class="text-muted mb-0">
-                            Tahun Akademik: <strong><?php echo htmlspecialchars($tahun_akademik); ?></strong> | 
+                            Tahun Akademik: <strong><?php echo htmlspecialchars($tahun_akademik); ?></strong> |
                             Semester: <strong><?php echo htmlspecialchars($semester_aktif); ?></strong>
                         </p>
                     </div>
@@ -1521,100 +1516,94 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                         </button>
                     </div>
                 </div>
-                
-                <!-- Filter Hari -->
+
                 <div class="mb-4">
                     <h5 class="mb-3">
                         <i class="fas fa-calendar-day me-2"></i> Pilih Hari
                     </h5>
                     <div class="filter-tabs" id="filter-hari-desktop">
                         <?php foreach ($hari_map as $num => $hari): ?>
-                        <label class="filter-tab <?php echo (!$tampil_semua_hari && $hari_selected == $num) ? 'active' : ''; ?>" 
-                               data-type="hari" data-value="<?php echo $num; ?>">
-                            <i class="fas fa-calendar-day"></i> <?php echo $hari; ?>
-                        </label>
+                            <label class="filter-tab <?php echo (!$tampil_semua_hari && $hari_selected == $num) ? 'active' : ''; ?>"
+                                data-type="hari" data-value="<?php echo $num; ?>">
+                                <i class="fas fa-calendar-day"></i> <?php echo $hari; ?>
+                            </label>
                         <?php endforeach; ?>
-                        
-                        <label class="filter-tab <?php echo $tampil_semua_hari ? 'active' : ''; ?>" 
-                               data-type="semua_hari" data-value="1">
+
+                        <label class="filter-tab <?php echo $tampil_semua_hari ? 'active' : ''; ?>"
+                            data-type="semua_hari" data-value="1">
                             <i class="fas fa-calendar-week"></i> Semua Hari
                         </label>
                     </div>
                 </div>
-                
-                <!-- Filter Kelas -->
+
                 <div>
                     <h5 class="mb-3">
                         <i class="fas fa-users me-2"></i> Pilih Kelas
                     </h5>
                     <?php if (!empty($kelas_list)): ?>
-                    <div class="filter-tabs" id="filter-kelas-desktop">
-                        <?php foreach ($kelas_list as $kelas): ?>
-                        <label class="filter-tab <?php echo (!$tampil_semua_kelas && $kelas_selected == $kelas) ? 'active' : ''; ?>"
-                               data-type="kelas" data-value="<?php echo htmlspecialchars($kelas); ?>">
-                            <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($kelas); ?>
-                        </label>
-                        <?php endforeach; ?>
-                        
-                        <label class="filter-tab <?php echo $tampil_semua_kelas ? 'active' : ''; ?>"
-                               data-type="semua_kelas" data-value="1">
-                            <i class="fas fa-layer-group"></i> Semua Kelas
-                        </label>
-                    </div>
+                        <div class="filter-tabs" id="filter-kelas-desktop">
+                            <?php foreach ($kelas_list as $kelas): ?>
+                                <label class="filter-tab <?php echo (!$tampil_semua_kelas && $kelas_selected == $kelas) ? 'active' : ''; ?>"
+                                    data-type="kelas" data-value="<?php echo htmlspecialchars($kelas); ?>">
+                                    <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($kelas); ?>
+                                </label>
+                            <?php endforeach; ?>
+
+                            <label class="filter-tab <?php echo $tampil_semua_kelas ? 'active' : ''; ?>"
+                                data-type="semua_kelas" data-value="1">
+                                <i class="fas fa-layer-group"></i> Semua Kelas
+                            </label>
+                        </div>
                     <?php else: ?>
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Tidak ada kelas tersedia untuk semester <?php echo htmlspecialchars($semester_aktif); ?>
-                    </div>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Tidak ada kelas tersedia untuk semester <?php echo htmlspecialchars($semester_aktif); ?>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- ==================================================== -->
-    <!-- RUNNING TEXT YANG SUDAH DIPERBAIKI -->
-    <!-- ==================================================== -->
+    <!-- Running Text -->
     <?php if ($running_text_enabled == '1' && !empty($running_text_content)): ?>
-    <section class="running-text-section py-1">
-        <div class="container-fluid px-0">
-            <div class="running-text-container">
-                <div class="running-text-wrapper <?php echo $running_text_speed; ?>">
-                    <!-- Duplicate items untuk efek kontinu tanpa jeda -->
-                    <div class="running-text-item">
-                        <div class="running-text-content">
-                            <i class="fas fa-bullhorn"></i>
-                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+        <section class="running-text-section py-1">
+            <div class="container-fluid px-0">
+                <div class="running-text-container">
+                    <div class="running-text-wrapper <?php echo $running_text_speed; ?>">
+                        <div class="running-text-item">
+                            <div class="running-text-content">
+                                <i class="fas fa-bullhorn"></i>
+                                <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="running-text-item">
-                        <div class="running-text-content">
-                            <i class="fas fa-bullhorn"></i>
-                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        <div class="running-text-item">
+                            <div class="running-text-content">
+                                <i class="fas fa-bullhorn"></i>
+                                <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="running-text-item">
-                        <div class="running-text-content">
-                            <i class="fas fa-bullhorn"></i>
-                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        <div class="running-text-item">
+                            <div class="running-text-content">
+                                <i class="fas fa-bullhorn"></i>
+                                <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="running-text-item">
-                        <div class="running-text-content">
-                            <i class="fas fa-bullhorn"></i>
-                            <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                        <div class="running-text-item">
+                            <div class="running-text-content">
+                                <i class="fas fa-bullhorn"></i>
+                                <span><?php echo htmlspecialchars($running_text_content); ?></span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
     <?php endif; ?>
 
     <!-- Jadwal Berlangsung/Berikutnya -->
     <div class="current-next-section py-4" id="currentNextSection">
         <div class="container">
-            <!-- Header dengan toggle -->
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h4 class="mb-0">
                     <i class="fas fa-clock me-2"></i>
@@ -1636,11 +1625,9 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     </button>
                 </div>
             </div>
-            
-            <!-- Konten Jadwal - DUA KOLOM -->
+
             <div id="currentScheduleContent">
                 <div class="row">
-                    <!-- KOLOM KIRI: Jadwal Berlangsung -->
                     <div class="col-md-6 mb-3 mb-md-0">
                         <?php if ($jadwal_berlangsung): ?>
                             <div class="current-jadwal h-100">
@@ -1657,7 +1644,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                         </span>
                                     </div>
                                 </div>
-                                
+
                                 <div class="current-jadwal-body">
                                     <div class="row align-items-center">
                                         <div class="col-3 text-center mb-3 mb-md-0">
@@ -1692,17 +1679,16 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="mt-3 text-end">
-                                        <button class="btn btn-light btn-sm btn-detail" 
-                                                data-schedule='<?php echo htmlspecialchars(json_encode($jadwal_berlangsung), ENT_QUOTES, 'UTF-8'); ?>'>
+                                        <button class="btn btn-light btn-sm btn-detail"
+                                            data-schedule='<?php echo htmlspecialchars(json_encode($jadwal_berlangsung), ENT_QUOTES, 'UTF-8'); ?>'>
                                             <i class="fas fa-info-circle me-2"></i> Detail
                                         </button>
                                     </div>
                                 </div>
                             </div>
                         <?php else: ?>
-                            <!-- TIDAK ADA JADWAL BERLANGSUNG -->
                             <div class="no-ongoing-schedule h-100" style="background: #f8f9fa; border-radius: 15px; padding: 30px; text-align: center; height: 100%;">
                                 <i class="fas fa-clock fa-2x text-muted mb-3"></i>
                                 <h5 class="text-muted mb-2">Tidak Ada Jadwal Berlangsung</h5>
@@ -1716,8 +1702,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                             </div>
                         <?php endif; ?>
                     </div>
-                    
-                    <!-- KOLOM KANAN: Jadwal Berikutnya -->
+
                     <div class="col-md-6">
                         <?php if ($jadwal_berikutnya): ?>
                             <div class="next-jadwal h-100">
@@ -1726,9 +1711,8 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                         <div>
                                             <h5 class="mb-0">
                                                 <i class="fas fa-clock me-2"></i> Jadwal Berikutnya
-                                                <!-- PERUBAHAN: Tambahkan info bahwa ini berdasarkan hari saat ini -->
-                                                <span class="badge bg-info ms-2" data-bs-toggle="tooltip" 
-                                                      title="Jadwal berikutnya berdasarkan kelas dan hari saat ini">
+                                                <span class="badge bg-info ms-2" data-bs-toggle="tooltip"
+                                                    title="Jadwal berikutnya berdasarkan kelas dan hari saat ini">
                                                     <i class="fas fa-calendar-day me-1"></i>
                                                     Hari Ini: <?php echo $hari_sekarang_teks ?? 'Hari ini'; ?>
                                                 </span>
@@ -1774,57 +1758,54 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                                     <span class="text-light"><?php echo htmlspecialchars($jadwal_berikutnya['waktu']); ?></span>
                                                 </div>
                                             </div>
-                                            
-                                            <!-- Jika filter semua hari dan jadwal di hari berbeda -->
+
                                             <?php if ($tampil_semua_hari && $selisih_hari > 0): ?>
-                                            <div class="next-day-info">
-                                                <i class="fas fa-calendar-alt me-2"></i>
-                                                <strong>Jadwal di hari <?php echo $target_hari; ?></strong>
-                                            </div>
+                                                <div class="next-day-info">
+                                                    <i class="fas fa-calendar-alt me-2"></i>
+                                                    <strong>Jadwal di hari <?php echo $target_hari; ?></strong>
+                                                </div>
                                             <?php endif; ?>
-                                            
-                                            <!-- Countdown Timer - DIPERBAIKI -->
+
                                             <?php if ($waktu_tunggu_detik > 0): ?>
-                                            <div class="countdown-container mt-3">
-                                                <div class="text-center mb-2">
-                                                    <small class="text-light opacity-75">
-                                                        <i class="fas fa-hourglass-half me-1"></i>
-                                                        Mulai dalam:
-                                                    </small>
+                                                <div class="countdown-container mt-3">
+                                                    <div class="text-center mb-2">
+                                                        <small class="text-light opacity-75">
+                                                            <i class="fas fa-hourglass-half me-1"></i>
+                                                            Mulai dalam:
+                                                        </small>
+                                                    </div>
+                                                    <div class="countdown-timer text-center text-light" id="countdownTimer">
+                                                        <span class="countdown-unit">
+                                                            <div id="countdownDays">0</div>
+                                                            <div class="countdown-label">Hari</div>
+                                                        </span>
+                                                        <span class="countdown-unit">
+                                                            <div id="countdownHours">00</div>
+                                                            <div class="countdown-label">Jam</div>
+                                                        </span>
+                                                        <span class="countdown-unit">
+                                                            <div id="countdownMinutes">00</div>
+                                                            <div class="countdown-label">Menit</div>
+                                                        </span>
+                                                        <span class="countdown-unit">
+                                                            <div id="countdownSeconds">00</div>
+                                                            <div class="countdown-label">Detik</div>
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <div class="countdown-timer text-center text-light" id="countdownTimer">
-                                                    <span class="countdown-unit">
-                                                        <div id="countdownDays">0</div>
-                                                        <div class="countdown-label">Hari</div>
-                                                    </span>
-                                                    <span class="countdown-unit">
-                                                        <div id="countdownHours">00</div>
-                                                        <div class="countdown-label">Jam</div>
-                                                    </span>
-                                                    <span class="countdown-unit">
-                                                        <div id="countdownMinutes">00</div>
-                                                        <div class="countdown-label">Menit</div>
-                                                    </span>
-                                                    <span class="countdown-unit">
-                                                        <div id="countdownSeconds">00</div>
-                                                        <div class="countdown-label">Detik</div>
-                                                    </span>
-                                                </div>
-                                            </div>
                                             <?php endif; ?>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="mt-3 text-end">
-                                        <button class="btn btn-light btn-sm btn-detail" 
-                                                data-schedule='<?php echo htmlspecialchars(json_encode($jadwal_berikutnya), ENT_QUOTES, 'UTF-8'); ?>'>
+                                        <button class="btn btn-light btn-sm btn-detail"
+                                            data-schedule='<?php echo htmlspecialchars(json_encode($jadwal_berikutnya), ENT_QUOTES, 'UTF-8'); ?>'>
                                             <i class="fas fa-info-circle me-2"></i> Detail
                                         </button>
                                     </div>
                                 </div>
                             </div>
                         <?php else: ?>
-                            <!-- TIDAK ADA JADWAL BERIKUTNYA -->
                             <div class="no-next-schedule h-100" style="background: #f8f9fa; border-radius: 15px; padding: 30px; text-align: center; height: 100%;">
                                 <i class="fas fa-calendar-times fa-2x text-muted mb-3"></i>
                                 <h5 class="text-muted mb-2">Tidak Ada Jadwal Berikutnya</h5>
@@ -1839,8 +1820,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                         <?php endif; ?>
                     </div>
                 </div>
-                
-                <!-- Info Tambahan -->
+
                 <div class="row mt-3">
                     <div class="col-12">
                         <div class="info-box bg-light rounded-3 p-3">
@@ -1849,22 +1829,20 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                                 <div>
                                     <small class="text-muted d-block mb-1">Info Sistem & Filter</small>
                                     <div class="d-flex flex-wrap gap-3">
-                                        <span><i class="fas fa-calendar me-1 text-primary"></i> Hari: 
-                                            <?php echo $tampil_semua_hari ? 'Semua Hari' : $hari_teks; ?> 
-                                            <?php echo ($hari_sekarang_teks && !$tampil_semua_hari && $hari_teks != $hari_sekarang_teks) ? ' (Hari ini: '.$hari_sekarang_teks.')' : ''; ?>
+                                        <span><i class="fas fa-calendar me-1 text-primary"></i> Hari:
+                                            <?php echo $tampil_semua_hari ? 'Semua Hari' : $hari_teks; ?>
+                                            <?php echo ($hari_sekarang_teks && !$tampil_semua_hari && $hari_teks != $hari_sekarang_teks) ? ' (Hari ini: ' . $hari_sekarang_teks . ')' : ''; ?>
                                         </span>
-                                        <span><i class="fas fa-users me-1 text-primary"></i> Kelas: 
+                                        <span><i class="fas fa-users me-1 text-primary"></i> Kelas:
                                             <?php echo $tampil_semua_kelas ? 'Semua Kelas' : htmlspecialchars($kelas_selected); ?>
                                         </span>
-                                        <!-- PERUBAHAN: Tambahkan info tentang jadwal berikutnya -->
                                         <span class="text-info">
-                                            <i class="fas fa-clock me-1"></i> 
+                                            <i class="fas fa-clock me-1"></i>
                                             Jadwal berikutnya: Berdasarkan <strong>Kelas</strong> dan <strong>Hari Ini</strong>
                                         </span>
                                         <span><i class="fas fa-clock me-1 text-primary"></i> Waktu: <?php echo date('H:i'); ?></span>
                                         <span><i class="fas fa-graduation-cap me-1 text-primary"></i> Semester: <?php echo htmlspecialchars($semester_aktif); ?></span>
                                     </div>
-                                    <!-- Filter Info Display -->
                                     <div class="filter-info-display mt-3">
                                         <div class="alert alert-info p-2 mb-0">
                                             <i class="fas fa-info-circle me-2"></i>
@@ -1897,7 +1875,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                         <?php else: ?>
                             Hari <?php echo $hari_teks; ?>
                         <?php endif; ?>
-                        
+
                         <?php if ($tampil_semua_kelas): ?>
                             - Semua Kelas
                         <?php else: ?>
@@ -1916,120 +1894,116 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             <!-- TAMPILAN GRID (Desktop) -->
             <div class="jadwal-grid-view">
                 <?php if (empty($jadwal)): ?>
-                <div class="empty-state">
-                    <i class="fas fa-calendar-times"></i>
-                    <h3 class="text-muted mb-3">Tidak ada jadwal</h3>
-                    <p class="text-muted mb-4">Tidak ada jadwal kuliah untuk kriteria yang dipilih</p>
-                    <button class="btn btn-primary" onclick="handleShowAllSchedule()">
-                        <i class="fas fa-eye me-2"></i> Tampilkan Semua Jadwal
-                    </button>
-                </div>
+                    <div class="empty-state">
+                        <i class="fas fa-calendar-times"></i>
+                        <h3 class="text-muted mb-3">Tidak ada jadwal</h3>
+                        <p class="text-muted mb-4">Tidak ada jadwal kuliah untuk kriteria yang dipilih</p>
+                        <button class="btn btn-primary" onclick="handleShowAllSchedule()">
+                            <i class="fas fa-eye me-2"></i> Tampilkan Semua Jadwal
+                        </button>
+                    </div>
                 <?php elseif ($tampil_semua_hari): ?>
-                    <!-- Tampilan semua hari -->
                     <?php foreach ($hari_map as $num => $hari): ?>
                         <?php if (isset($jadwal_per_hari[$hari]) && !empty($jadwal_per_hari[$hari])): ?>
-                        <div class="hari-section">
-                            <div class="hari-title">
-                                <h4 class="mb-0">
-                                    <i class="fas fa-calendar-day me-2"></i> <?php echo $hari; ?>
-                                </h4>
-                                <span class="jadwal-count">
-                                    <?php echo count($jadwal_per_hari[$hari]); ?> Jadwal
-                                </span>
-                            </div>
-                            <div class="row">
-                                <?php foreach ($jadwal_per_hari[$hari] as $item): ?>
-                                <?php 
-                                // Cek apakah ini jadwal yang sedang berlangsung
-                                $is_current = false;
-                                if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
-                                    if ($jadwal_berlangsung['id'] == $item['id']) {
-                                        $is_current = true;
-                                    }
-                                }
-                                ?>
-                                <div class="col-md-6 col-lg-4 mb-4">
-                                    <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
-                                        <div class="jadwal-header">
-                                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                                <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
-                                                <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
-                                            </div>
-                                            <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
-                                        </div>
-                                        <div class="jadwal-body">
-                                            <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
-                                            <div class="jadwal-info">
-                                                <i class="fas fa-user-tie"></i>
-                                                <span><?php echo htmlspecialchars($item['dosen']); ?></span>
-                                            </div>
-                                            <div class="jadwal-info">
-                                                <i class="fas fa-door-open"></i>
-                                                <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
-                                            </div>
-                                            <div class="jadwal-info">
-                                                <i class="fas fa-users"></i>
-                                                <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
-                                            </div>
-                                            <div class="mt-4">
-                                                <button class="btn btn-outline-primary w-100 btn-detail" 
-                                                        data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
-                                                    <i class="fas fa-info-circle me-2"></i> Detail Jadwal
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <div class="hari-section">
+                                <div class="hari-title">
+                                    <h4 class="mb-0">
+                                        <i class="fas fa-calendar-day me-2"></i> <?php echo $hari; ?>
+                                    </h4>
+                                    <span class="jadwal-count">
+                                        <?php echo count($jadwal_per_hari[$hari]); ?> Jadwal
+                                    </span>
                                 </div>
-                                <?php endforeach; ?>
+                                <div class="row">
+                                    <?php foreach ($jadwal_per_hari[$hari] as $item): ?>
+                                        <?php
+                                        $is_current = false;
+                                        if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
+                                            if ($jadwal_berlangsung['id'] == $item['id']) {
+                                                $is_current = true;
+                                            }
+                                        }
+                                        ?>
+                                        <div class="col-md-6 col-lg-4 mb-4">
+                                            <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
+                                                <div class="jadwal-header">
+                                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                                        <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
+                                                        <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
+                                                    </div>
+                                                    <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
+                                                </div>
+                                                <div class="jadwal-body">
+                                                    <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
+                                                    <div class="jadwal-info">
+                                                        <i class="fas fa-user-tie"></i>
+                                                        <span><?php echo htmlspecialchars($item['dosen']); ?></span>
+                                                    </div>
+                                                    <div class="jadwal-info">
+                                                        <i class="fas fa-door-open"></i>
+                                                        <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
+                                                    </div>
+                                                    <div class="jadwal-info">
+                                                        <i class="fas fa-users"></i>
+                                                        <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
+                                                    </div>
+                                                    <div class="mt-4">
+                                                        <button class="btn btn-outline-primary w-100 btn-detail"
+                                                            data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
+                                                            <i class="fas fa-info-circle me-2"></i> Detail Jadwal
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
                             </div>
-                        </div>
                         <?php endif; ?>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <!-- Tampilan per hari -->
                     <div class="row">
                         <?php foreach ($jadwal as $item): ?>
-                        <?php 
-                        // Cek apakah ini jadwal yang sedang berlangsung
-                        $is_current = false;
-                        if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
-                            if ($jadwal_berlangsung['id'] == $item['id']) {
-                                $is_current = true;
+                            <?php
+                            $is_current = false;
+                            if ($item['hari'] == $hari_sekarang_teks && $jadwal_berlangsung) {
+                                if ($jadwal_berlangsung['id'] == $item['id']) {
+                                    $is_current = true;
+                                }
                             }
-                        }
-                        ?>
-                        <div class="col-md-6 col-lg-4 mb-4">
-                            <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
-                                <div class="jadwal-header">
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
-                                        <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
-                                        <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
+                            ?>
+                            <div class="col-md-6 col-lg-4 mb-4">
+                                <div class="jadwal-card <?php echo $is_current ? 'active jadwal-berlangsung-highlight' : ''; ?>">
+                                    <div class="jadwal-header">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="jadwal-time"><?php echo htmlspecialchars($item['waktu']); ?></span>
+                                            <span class="badge bg-light text-dark">Jam ke-<?php echo htmlspecialchars($item['jam_ke']); ?></span>
+                                        </div>
+                                        <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
                                     </div>
-                                    <h5 class="text-light mb-0 text-truncate"><?php echo htmlspecialchars($item['mata_kuliah']); ?></h5>
-                                </div>
-                                <div class="jadwal-body">
-                                    <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
-                                    <div class="jadwal-info">
-                                        <i class="fas fa-user-tie"></i>
-                                        <span><?php echo htmlspecialchars($item['dosen']); ?></span>
-                                    </div>
-                                    <div class="jadwal-info">
-                                        <i class="fas fa-door-open"></i>
-                                        <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
-                                    </div>
-                                    <div class="jadwal-info">
-                                        <i class="fas fa-users"></i>
-                                        <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
-                                    </div>
-                                    <div class="mt-4">
-                                        <button class="btn btn-outline-primary w-100 btn-detail" 
+                                    <div class="jadwal-body">
+                                        <div class="jadwal-mata-kuliah"><?php echo htmlspecialchars($item['mata_kuliah']); ?></div>
+                                        <div class="jadwal-info">
+                                            <i class="fas fa-user-tie"></i>
+                                            <span><?php echo htmlspecialchars($item['dosen']); ?></span>
+                                        </div>
+                                        <div class="jadwal-info">
+                                            <i class="fas fa-door-open"></i>
+                                            <span>Ruang <?php echo htmlspecialchars($item['ruang']); ?></span>
+                                        </div>
+                                        <div class="jadwal-info">
+                                            <i class="fas fa-users"></i>
+                                            <span>Kelas <?php echo htmlspecialchars($item['kelas']); ?></span>
+                                        </div>
+                                        <div class="mt-4">
+                                            <button class="btn btn-outline-primary w-100 btn-detail"
                                                 data-schedule='<?php echo htmlspecialchars(json_encode($item), ENT_QUOTES, 'UTF-8'); ?>'>
-                                            <i class="fas fa-info-circle me-2"></i> Detail Jadwal
-                                        </button>
+                                                <i class="fas fa-info-circle me-2"></i> Detail Jadwal
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
@@ -2143,8 +2117,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     </p>
                 </div>
             </div>
-            
-            <!-- Kritik & Saran Link di Footer -->
+
             <div class="text-center mt-4">
                 <button class="btn suggestion-btn mb-3" data-bs-toggle="modal" data-bs-target="#suggestionModal">
                     <i class="fas fa-comment-dots me-2"></i> Beri Kritik & Saran
@@ -2154,11 +2127,11 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     Sampaikan masukan Anda untuk perbaikan sistem
                 </p>
             </div>
-            
+
             <hr class="my-4 bg-light">
             <div class="text-center">
                 <p class="mb-2">
-                    © <?php echo date('Y'); ?> Sistem Informasi Jadwal Kuliah v2.0
+                    <span class="years">© <?php echo date('Y'); ?> Sistem Informasi Jadwal Kuliah v2.0</span>
                 </p>
                 <small class="text-light opacity-75">
                     Sistem menampilkan <?php echo count($jadwal); ?> jadwal untuk semester <?php echo htmlspecialchars($semester_aktif); ?> <?php echo htmlspecialchars($tahun_akademik); ?>
@@ -2183,7 +2156,6 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4" id="scheduleDetail">
-                    <!-- Detail akan diisi oleh JavaScript -->
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
@@ -2207,31 +2179,31 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 <form method="POST" action="submit_suggestion.php" id="suggestionForm">
                     <div class="modal-body p-4">
                         <p class="text-muted mb-4">
-                            Sampaikan kritik dan saran Anda untuk perbaikan sistem jadwal kuliah. 
+                            Sampaikan kritik dan saran Anda untuk perbaikan sistem jadwal kuliah.
                             Semua masukan akan sangat berarti bagi kami.
                         </p>
-                        
+
                         <div class="mb-3">
                             <label for="suggestionName" class="form-label">Nama <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="suggestionName" name="name" 
-                                   placeholder="Masukkan nama Anda" required>
+                            <input type="text" class="form-control" id="suggestionName" name="name"
+                                placeholder="Masukkan nama Anda" required>
                         </div>
-                        
+
                         <div class="mb-3">
                             <label for="suggestionEmail" class="form-label">Email (opsional)</label>
-                            <input type="email" class="form-control" id="suggestionEmail" name="email" 
-                                   placeholder="nama@email.com">
+                            <input type="email" class="form-control" id="suggestionEmail" name="email"
+                                placeholder="nama@email.com">
                             <small class="text-muted">Email hanya digunakan untuk follow up jika diperlukan</small>
                         </div>
-                        
+
                         <div class="mb-3">
                             <label for="suggestionMessage" class="form-label">Kritik & Saran <span class="text-danger">*</span></label>
-                            <textarea class="form-control" id="suggestionMessage" name="message" 
-                                      rows="5" placeholder="Tuliskan kritik dan saran Anda di sini..." 
-                                      required></textarea>
+                            <textarea class="form-control" id="suggestionMessage" name="message"
+                                rows="5" placeholder="Tuliskan kritik dan saran Anda di sini..."
+                                required></textarea>
                             <small class="text-muted">Minimal 10 karakter</small>
                         </div>
-                        
+
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
                             <small>
@@ -2258,33 +2230,32 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="assets/js/main.js"></script>
     <script>
+        // PERBAIKAN: Menggunakan querySelector untuk class .years
+        const yearsElement = document.querySelector('.years');
+        if (yearsElement) {
+            yearsElement.textContent = new Date().getFullYear();
+        }
+        
         // JavaScript variables untuk default values
         const currentDay = <?php echo date('N'); ?>;
         const firstClass = <?php echo json_encode(!empty($kelas_list) ? $kelas_list[0] : 'A1'); ?>;
-        
-        // ==================================================== //
-        // OPTIMASI RUNNING TEXT UNTUK KECEPATAN KONSISTEN & SMOOTH
-        // ==================================================== //
+
         function optimizeRunningText() {
             const runningTextWrapper = document.querySelector('.running-text-wrapper');
             if (!runningTextWrapper) return;
-            
-            // Deteksi performa device
-            const isLowPerfDevice = navigator.hardwareConcurrency < 4 || 
-                                   (navigator.deviceMemory && navigator.deviceMemory < 4);
-            
-            // Sesuaikan blur untuk device rendah
+
+            const isLowPerfDevice = navigator.hardwareConcurrency < 4 ||
+                (navigator.deviceMemory && navigator.deviceMemory < 4);
+
             if (isLowPerfDevice) {
                 document.documentElement.style.setProperty('--blur-intensity', '0.15');
             }
-            
-            // Optimasi untuk mobile: pastikan kecepatan sama
+
             const wrapper = runningTextWrapper;
-            const speedClass = wrapper.className.includes('slow') ? 'slow' : 
-                              wrapper.className.includes('fast') ? 'fast' : 'normal';
-            
-            // Force the same speed on all devices
-            switch(speedClass) {
+            const speedClass = wrapper.className.includes('slow') ? 'slow' :
+                wrapper.className.includes('fast') ? 'fast' : 'normal';
+
+            switch (speedClass) {
                 case 'slow':
                     wrapper.style.animationDuration = '40s';
                     break;
@@ -2295,19 +2266,17 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     wrapper.style.animationDuration = '15s';
                     break;
             }
-            
-            // Restart animation untuk memastikan smoothness
+
             wrapper.style.animation = 'none';
             setTimeout(() => {
                 wrapper.style.animation = '';
-                wrapper.style.animationDuration = wrapper.className.includes('slow') ? '40s' : 
-                                                wrapper.className.includes('fast') ? '15s' : '25s';
+                wrapper.style.animationDuration = wrapper.className.includes('slow') ? '40s' :
+                    wrapper.className.includes('fast') ? '15s' : '25s';
                 wrapper.style.animationTimingFunction = 'linear';
                 wrapper.style.animationIterationCount = 'infinite';
             }, 10);
         }
-        
-        // Fungsi untuk menyimpan filter ke localStorage
+
         function saveFilterToLocalStorage() {
             try {
                 const params = new URLSearchParams(window.location.search);
@@ -2318,28 +2287,22 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     semua_kelas: params.get('semua_kelas') === '1',
                     timestamp: new Date().getTime()
                 };
-                
                 localStorage.setItem('jadwalFilter', JSON.stringify(filterData));
             } catch (e) {
-                // Silent fail - tidak tampilkan error ke user
                 console.error('Gagal menyimpan filter:', e);
             }
         }
-        
-        // Fungsi untuk memuat filter dari localStorage
+
         function loadFilterFromLocalStorage() {
             try {
                 const savedFilter = localStorage.getItem('jadwalFilter');
                 if (savedFilter) {
                     const filterData = JSON.parse(savedFilter);
-                    
-                    // Validasi data tidak lebih dari 30 hari
                     const thirtyDaysAgo = new Date().getTime() - (30 * 24 * 60 * 60 * 1000);
                     if (filterData.timestamp && filterData.timestamp < thirtyDaysAgo) {
                         localStorage.removeItem('jadwalFilter');
                         return null;
                     }
-                    
                     return filterData;
                 }
             } catch (e) {
@@ -2347,46 +2310,39 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             }
             return null;
         }
-        
-        // Fungsi untuk menerapkan filter yang disimpan jika tidak ada parameter GET
+
         function applySavedFilterIfNeeded() {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const hasUrlParams = urlParams.toString() !== '';
-                
-                // Jika tidak ada parameter di URL, coba gunakan filter yang disimpan
+
                 if (!hasUrlParams) {
                     const savedFilter = loadFilterFromLocalStorage();
                     if (savedFilter) {
-                        // Bangun URL dengan filter yang disimpan
                         const params = new URLSearchParams();
-                        
+
                         if (savedFilter.semua_hari) {
                             params.append('semua_hari', '1');
                         } else if (savedFilter.hari) {
                             params.append('hari', savedFilter.hari);
                         }
-                        
+
                         if (savedFilter.semua_kelas) {
                             params.append('semua_kelas', '1');
                         } else if (savedFilter.kelas) {
                             params.append('kelas', savedFilter.kelas);
                         }
-                        
+
                         const queryString = params.toString();
                         if (queryString) {
-                            // Gunakan replaceState untuk mengubah URL tanpa reload
                             window.history.replaceState({}, '', `index.php?${queryString}`);
-                            // Reload halaman untuk menerapkan filter
                             setTimeout(() => {
                                 window.location.reload();
                             }, 100);
                             return true;
                         }
                     }
-                }
-                // Jika ada parameter, simpan ke localStorage
-                else {
+                } else {
                     saveFilterToLocalStorage();
                 }
             } catch (e) {
@@ -2394,29 +2350,22 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             }
             return false;
         }
-        
-        // Simple initialization - let main.js handle the events
+
         document.addEventListener('DOMContentLoaded', function() {
-            // Terapkan filter yang disimpan jika diperlukan
             applySavedFilterIfNeeded();
-            
-            // Optimasi running text
             optimizeRunningText();
-            
-            // Re-optimize saat resize (untuk mobile orientation change)
+
             let resizeTimer;
             window.addEventListener('resize', function() {
                 clearTimeout(resizeTimer);
                 resizeTimer = setTimeout(optimizeRunningText, 250);
             });
-            
-            // Initialize Bootstrap tooltips
+
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl);
             });
-            
-            // Load saved schedule visibility preference
+
             const scheduleVisible = localStorage.getItem('scheduleVisible');
             if (scheduleVisible === 'false') {
                 const section = document.getElementById('currentNextSection');
@@ -2426,53 +2375,43 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     toggleText.textContent = 'Tampilkan';
                 }
             }
-            
-            // Initialize countdown timer if needed
+
             <?php if ($jadwal_berikutnya && $waktu_tunggu_detik > 0): ?>
-            // Simpan waktu tunggu di variabel global
-            window.waktuTungguDetik = <?php echo $waktu_tunggu_detik; ?>;
-            
-            // Mulai countdown timer
-            startCountdownTimer();
+                window.waktuTungguDetik = <?php echo $waktu_tunggu_detik; ?>;
+                startCountdownTimer();
             <?php endif; ?>
-            
-            // Auto-update current time every minute
+
             setInterval(() => {
                 const now = new Date();
-                const currentTime = now.toLocaleTimeString('id-ID', { 
-                    hour: '2-digit', 
+                const currentTime = now.toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
                     minute: '2-digit',
                     hour12: false
                 });
-                
+
                 const timeBadge = document.getElementById('currentTime');
                 if (timeBadge) {
                     timeBadge.textContent = currentTime;
                 }
             }, 60000);
-            
-            // Fungsi untuk refresh jadwal berikutnya ketika filter kelas berubah
+
             function updateNextScheduleOnClassChange() {
-                // Event listener untuk perubahan filter kelas
                 document.querySelectorAll('.filter-tab[data-type="kelas"], .filter-tab[data-type="semua_kelas"]').forEach(tab => {
                     tab.addEventListener('click', function() {
-                        // Karena jadwal berikutnya berdasarkan kelas, kita perlu refresh
                         setTimeout(() => {
                             location.reload();
                         }, 100);
                     });
                 });
             }
-            
-            // Panggil fungsi saat halaman dimuat
+
             updateNextScheduleOnClassChange();
         });
 
-        // Global functions accessible from HTML onclick
         window.toggleSidebar = function() {
             const sidebar = document.getElementById('mobileSidebar');
             const overlay = document.getElementById('sidebarOverlay');
-            
+
             if (sidebar && overlay) {
                 sidebar.classList.toggle('show');
                 overlay.classList.toggle('show');
@@ -2481,7 +2420,6 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         };
 
         window.handleShowAllSchedule = function() {
-            // Simpan filter "semua" sebelum redirect
             const allFilter = {
                 hari: null,
                 semua_hari: true,
@@ -2489,22 +2427,18 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 semua_kelas: true,
                 timestamp: new Date().getTime()
             };
-            
+
             try {
                 localStorage.setItem('jadwalFilter', JSON.stringify(allFilter));
-            } catch (e) {
-                // Silent fail
-            }
-            
+            } catch (e) {}
+
             window.location.href = 'index.php?semua_hari=1&semua_kelas=1';
         };
 
         window.handleResetFilter = function() {
-            // Reset to current day and first class
             const hariSekarang = currentDay > 5 ? 1 : currentDay;
             const kelasPertama = firstClass;
-            
-            // Simpan filter reset
+
             const resetFilter = {
                 hari: hariSekarang,
                 semua_hari: false,
@@ -2512,37 +2446,31 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 semua_kelas: false,
                 timestamp: new Date().getTime()
             };
-            
+
             try {
                 localStorage.setItem('jadwalFilter', JSON.stringify(resetFilter));
-            } catch (e) {
-                // Silent fail
-            }
-            
+            } catch (e) {}
+
             window.location.href = `index.php?hari=${hariSekarang}&kelas=${encodeURIComponent(kelasPertama)}`;
         };
 
         window.toggleCurrentSchedule = function() {
             const section = document.getElementById('currentNextSection');
             const toggleText = document.getElementById('toggleText');
-            
+
             if (section && toggleText) {
                 section.classList.toggle('collapsed-section');
-                
+
                 if (section.classList.contains('collapsed-section')) {
                     toggleText.textContent = 'Tampilkan';
                     try {
                         localStorage.setItem('scheduleVisible', 'false');
-                    } catch (e) {
-                        // Silent fail
-                    }
+                    } catch (e) {}
                 } else {
                     toggleText.textContent = 'Sembunyikan';
                     try {
                         localStorage.setItem('scheduleVisible', 'true');
-                    } catch (e) {
-                        // Silent fail
-                    }
+                    } catch (e) {}
                 }
             }
         };
@@ -2555,84 +2483,71 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
             window.location.reload();
         };
 
-        // FUNGSI COUNTDOWN TIMER YANG DIPERBAIKI
         window.startCountdownTimer = function() {
             if (!window.waktuTungguDetik || window.waktuTungguDetik <= 0) {
-                console.log('Tidak ada waktu tunggu untuk countdown');
                 return;
             }
 
             let remainingSeconds = window.waktuTungguDetik;
-            
+
             function updateCountdown() {
                 if (remainingSeconds <= 0) {
-                    // Reload halaman ketika countdown selesai
                     window.location.reload();
                     return;
                 }
-                
-                // Hitung hari, jam, menit, detik
+
                 const days = Math.floor(remainingSeconds / (24 * 3600));
                 const hours = Math.floor((remainingSeconds % (24 * 3600)) / 3600);
                 const minutes = Math.floor((remainingSeconds % 3600) / 60);
                 const seconds = remainingSeconds % 60;
-                
-                // Update elemen HTML
+
                 const daysElement = document.getElementById('countdownDays');
                 const hoursElement = document.getElementById('countdownHours');
                 const minutesElement = document.getElementById('countdownMinutes');
                 const secondsElement = document.getElementById('countdownSeconds');
-                
+
                 if (daysElement) daysElement.textContent = days.toString().padStart(2, '0');
                 if (hoursElement) hoursElement.textContent = hours.toString().padStart(2, '0');
                 if (minutesElement) minutesElement.textContent = minutes.toString().padStart(2, '0');
                 if (secondsElement) secondsElement.textContent = seconds.toString().padStart(2, '0');
-                
-                // Kurangi waktu
+
                 remainingSeconds--;
             }
-            
-            // Jalankan segera
+
             updateCountdown();
-            
-            // Update setiap detik
             window.countdownInterval = setInterval(updateCountdown, 1000);
         };
-        
-        // Hentikan interval saat halaman ditutup
+
         window.addEventListener('beforeunload', function() {
             if (window.countdownInterval) {
                 clearInterval(window.countdownInterval);
             }
         });
-        
-        // Handle Kritik & Saran Form
+
         $('#suggestionForm').on('submit', function(e) {
             e.preventDefault();
-            
+
             const submitBtn = $('#submitSuggestionBtn');
             const originalText = submitBtn.html();
-            
-            // Validasi manual
+
             const name = $('#suggestionName').val().trim();
             const message = $('#suggestionMessage').val().trim();
-            
+
             if (name.length < 2) {
                 alert('Nama minimal 2 karakter');
                 $('#suggestionName').focus();
                 return;
             }
-            
+
             if (message.length < 10) {
                 alert('Pesan minimal 10 karakter');
                 $('#suggestionMessage').focus();
                 return;
             }
-            
-            // Disable button and show loading
+
             submitBtn.prop('disabled', true);
             submitBtn.html('<i class="fas fa-spinner fa-spin me-2"></i> Mengirim...');
-            
+
             $.ajax({
                 url: 'submit_suggestion.php',
                 type: 'POST',
@@ -2640,11 +2555,8 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 dataType: 'json',
                 success: function(response) {
                     if (response.success) {
-                        // Show success message
                         alert(response.message);
-                        // Close modal
                         $('#suggestionModal').modal('hide');
-                        // Reset form
                         $('#suggestionForm')[0].reset();
                     } else {
                         alert('Error: ' + response.message);
@@ -2654,18 +2566,16 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     alert('Terjadi kesalahan koneksi. Silakan coba lagi.');
                 },
                 complete: function() {
-                    // Re-enable button
                     submitBtn.prop('disabled', false);
                     submitBtn.html(originalText);
                 }
             });
         });
 
-        // Form validation
         $('#suggestionMessage').on('input', function() {
             const message = $(this).val();
             const minLength = 10;
-            
+
             if (message.length < minLength && message.length > 0) {
                 $(this).addClass('is-invalid');
                 $(this).removeClass('is-valid');
@@ -2676,24 +2586,22 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                 $(this).removeClass('is-invalid is-valid');
             }
         });
-        
-        // Auto clear validation on modal close
+
         $('#suggestionModal').on('hidden.bs.modal', function() {
             $('#suggestionForm')[0].reset();
             $('#suggestionMessage').removeClass('is-invalid is-valid');
         });
     </script>
-    
-    <!-- Inisialisasi Countdown Timer jika ada -->
+
     <?php if ($jadwal_berikutnya && $waktu_tunggu_detik > 0): ?>
-    <script>
-        // Inisialisasi countdown saat halaman selesai sdimuat
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof startCountdownTimer === 'function') {
-                startCountdownTimer();
-            }
-        });
-    </script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                if (typeof startCountdownTimer === 'function') {
+                    startCountdownTimer();
+                }
+            });
+        </script>
     <?php endif; ?>
 </body>
+
 </html>

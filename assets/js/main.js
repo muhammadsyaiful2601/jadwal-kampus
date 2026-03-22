@@ -89,7 +89,13 @@ function setupEventDelegation() {
         if (filterToggle) {
             e.preventDefault();
             e.stopPropagation();
-            toggleSidebar();
+            // Panggil fungsi toggleSidebar dari global scope
+            if (typeof window.toggleSidebar === 'function') {
+                window.toggleSidebar();
+            } else {
+                // Fallback jika fungsi tidak tersedia
+                toggleSidebarFallback();
+            }
             return;
         }
         
@@ -98,7 +104,11 @@ function setupEventDelegation() {
         if (closeBtn) {
             e.preventDefault();
             e.stopPropagation();
-            toggleSidebar();
+            if (typeof window.toggleSidebar === 'function') {
+                window.toggleSidebar();
+            } else {
+                toggleSidebarFallback();
+            }
             return;
         }
         
@@ -107,7 +117,11 @@ function setupEventDelegation() {
         if (refreshBtn) {
             e.preventDefault();
             e.stopPropagation();
-            refreshCurrentSchedule(e);
+            if (typeof window.refreshCurrentSchedule === 'function') {
+                window.refreshCurrentSchedule(e);
+            } else {
+                refreshCurrentScheduleFallback();
+            }
             return;
         }
         
@@ -116,7 +130,11 @@ function setupEventDelegation() {
         if (overlay) {
             e.preventDefault();
             e.stopPropagation();
-            toggleSidebar();
+            if (typeof window.toggleSidebar === 'function') {
+                window.toggleSidebar();
+            } else {
+                toggleSidebarFallback();
+            }
             return;
         }
         
@@ -138,7 +156,11 @@ function setupEventDelegation() {
         if (e.key === 'Escape') {
             const sidebar = document.getElementById('mobileSidebar');
             if (sidebar && sidebar.classList.contains('show')) {
-                toggleSidebar();
+                if (typeof window.toggleSidebar === 'function') {
+                    window.toggleSidebar();
+                } else {
+                    toggleSidebarFallback();
+                }
             }
         }
     });
@@ -158,6 +180,23 @@ function setupEventDelegation() {
             el.classList.remove('touch-active');
         });
     }, { passive: true });
+}
+
+// Fallback function untuk toggleSidebar jika tidak tersedia dari index.php
+function toggleSidebarFallback() {
+    const sidebar = document.getElementById('mobileSidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    
+    if (sidebar && overlay) {
+        sidebar.classList.toggle('show');
+        overlay.classList.toggle('show');
+        document.body.style.overflow = sidebar.classList.contains('show') ? 'hidden' : '';
+    }
+}
+
+// Fallback function untuk refreshCurrentSchedule
+function refreshCurrentScheduleFallback() {
+    window.location.reload();
 }
 
 function handleFilterTabClick(filterTab) {
@@ -583,6 +622,7 @@ window.handleFilterClick = handleFilterTabClick;
 window.applyFilter = applyFilter;
 window.updateFilterUI = updateFilterUI;
 window.optimizeMobileLayout = optimizeMobileLayout;
+window.toggleSidebarFallback = toggleSidebarFallback;
 
 // Helper functions for current schedule
 function updateCurrentSchedule() {
