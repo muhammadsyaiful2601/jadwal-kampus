@@ -89,54 +89,210 @@ $stmt_schedules = $db->prepare($query_schedules);
 $stmt_schedules->execute($params);
 $schedules = $stmt_schedules->fetchAll(PDO::FETCH_ASSOC);
 
-// Tambah jadwal
-if(isset($_POST['add_schedule'])) {
-    // Validasi input
+// =======================================================
+// FUNGSI HELPER UNTUK MAPPING JAM KE -> WAKTU
+// =======================================================
+function getTimeSlotByJamKe($jam_ke)
+{
+    // Mapping berdasarkan PDF "Jadwal Genap Rev3"
+    // Format: jam_ke => [mulai, selesai]
+    $mapping = [
+        1  => ['07:30', '08:20'],
+        2  => ['08:20', '09:10'],
+        3  => ['09:10', '10:00'],
+        4  => ['10:00', '10:50'],
+        5  => ['10:50', '11:40'],
+        6  => ['11:40', '12:30'],
+        // istirahat 12:30 - 13:10
+        7  => ['13:10', '14:00'],
+        8  => ['14:00', '14:50'],
+        9  => ['14:50', '15:40'],
+        10 => ['15:40', '16:30'],
+    ];
+
+    return isset($mapping[$jam_ke]) ? $mapping[$jam_ke] : null;
+}
+
+// ========== PROSES TAMBAH MASSAL ==========
+if (isset($_POST['add_bulk_schedule'])) {
     $errors = [];
-    
-    if(empty($_POST['kelas'])) $errors[] = "Kelas harus diisi";
-    if(empty($_POST['hari'])) $errors[] = "Hari harus dipilih";
-    if(empty($_POST['jam_ke']) || $_POST['jam_ke'] < 1 || $_POST['jam_ke'] > 10) $errors[] = "Jam ke harus 1-10";
-    if(empty($_POST['waktu_mulai'])) $errors[] = "Waktu mulai harus diisi";
-    if(empty($_POST['waktu_selesai'])) $errors[] = "Waktu selesai harus diisi";
-    if(empty($_POST['mata_kuliah'])) $errors[] = "Mata kuliah harus diisi";
-    if(empty($_POST['dosen'])) $errors[] = "Dosen harus diisi";
-    if(empty($_POST['ruang'])) $errors[] = "Ruang harus dipilih";
-    if(empty($_POST['semester'])) $errors[] = "Semester harus dipilih";
-    if(empty($_POST['tahun_akademik'])) $errors[] = "Tahun akademik harus dipilih";
-    
-    // Validasi waktu
-    $time_error = validateScheduleTime($_POST['waktu_mulai'], $_POST['waktu_selesai']);
-    if ($time_error) $errors[] = $time_error;
-    
-    if(count($errors) > 0) {
+
+    // Validasi input dasar
+    $required = ['kelas', 'hari', 'mata_kuliah', 'dosen', 'ruang', 'semester', 'tahun_akademik'];
+    foreach ($required as $field) {
+        if (empty($_POST[$field])) {
+            $errors[] = ucfirst(str_replace('_', ' ', $field)) . " harus diisi.";
+        }
+    }
+
+    if (empty($_POST['jam_ke_list']) || !is_array($_POST['jam_ke_list'])) {
+        $errors[] = "Pilih minimal satu jam ke.";
+    }
+
+    if (!empty($errors)) {
         $_SESSION['error'] = implode("<br>", $errors);
         header('Location: manage_schedule.php');
         exit();
     }
-    
+
+    $kelas          = $_POST['kelas'];
+    $hari           = $_POST['hari'];
+    $mata_kuliah    = $_POST['mata_kuliah'];
+    $dosen          = $_POST['dosen'];
+    $ruang          = $_POST['ruang'];
+    $semester       = $_POST['semester'];
+    $tahun_akademik = $_POST['tahun_akademik'];
+    $jam_ke_list    = array_map('intval', $_POST['jam_ke_list']);
+    sort($jam_ke_list);
+
+    // Siapkan data untuk setiap slot, sekaligus cek bentrok
+    $entries = [];
+    $conflict_messages = [];
+
+    foreach ($jam_ke_list as $jam_ke) {
+        $slot = getTimeSlotByJamKe($jam_ke);
+        if (!$slot) {
+            $errors[] = "Jam ke-$jam_ke tidak valid.";
+            continue;
+        }
+        list($mulai, $selesai) = $slot;
+        $waktu = "$mulai - $selesai";
+
+        // Cek bentrok (exclude_id = null karena ini insert baru)
+        $conflicts = checkScheduleConflict(
+            $db,
+            $kelas,
+            $hari,
+            $mulai,
+            $selesai,
+            $semester,
+            $tahun_akademik,
+            $dosen,
+            $ruang
+        );
+
+        if (!empty($conflicts)) {
+            $conflict_messages[] = "Jam ke-$jam_ke ($waktu): " . implode(', ', $conflicts);
+        } else {
+            $entries[] = [
+                'kelas'          => $kelas,
+                'hari'           => $hari,
+                'jam_ke'         => $jam_ke,
+                'waktu'          => $waktu,
+                'mata_kuliah'    => $mata_kuliah,
+                'dosen'          => $dosen,
+                'ruang'          => $ruang,
+                'semester'       => $semester,
+                'tahun_akademik' => $tahun_akademik
+            ];
+        }
+    }
+
+    if (!empty($conflict_messages)) {
+        $_SESSION['error'] = "Terdapat bentrok jadwal:<br>" . implode("<br>", $conflict_messages);
+        header('Location: manage_schedule.php');
+        exit();
+    }
+
+    if (empty($entries)) {
+        $_SESSION['error'] = "Tidak ada data valid untuk disimpan.";
+        header('Location: manage_schedule.php');
+        exit();
+    }
+
+    // Lakukan insert dalam transaksi
+    try {
+        $db->beginTransaction();
+
+        $query = "INSERT INTO schedules 
+                  (kelas, hari, jam_ke, waktu, mata_kuliah, dosen, ruang, semester, tahun_akademik) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $stmt = $db->prepare($query);
+
+        foreach ($entries as $entry) {
+            $stmt->execute([
+                $entry['kelas'],
+                $entry['hari'],
+                $entry['jam_ke'],
+                $entry['waktu'],
+                $entry['mata_kuliah'],
+                $entry['dosen'],
+                $entry['ruang'],
+                $entry['semester'],
+                $entry['tahun_akademik']
+            ]);
+        }
+
+        $db->commit();
+
+        // Log activity (ringkasan)
+        $jam_str = implode(',', $jam_ke_list);
+        logActivity(
+            $db,
+            $_SESSION['user_id'],
+            'Tambah Massal Jadwal',
+            "Kelas: $kelas, Matkul: $mata_kuliah, Hari: $hari, Jam ke: $jam_str (" . count($entries) . " slot)"
+        );
+
+        $_SESSION['message'] = "Berhasil menambahkan " . count($entries) . " jadwal sekaligus.";
+    } catch (Exception $e) {
+        $db->rollBack();
+        error_log("Bulk insert error: " . $e->getMessage());
+        $_SESSION['error'] = "Gagal menyimpan jadwal massal. Silakan coba lagi.";
+    }
+
+    header('Location: manage_schedule.php');
+    exit();
+}
+
+// Tambah jadwal (single)
+if (isset($_POST['add_schedule'])) {
+    // Validasi input
+    $errors = [];
+
+    if (empty($_POST['kelas'])) $errors[] = "Kelas harus diisi";
+    if (empty($_POST['hari'])) $errors[] = "Hari harus dipilih";
+    if (empty($_POST['jam_ke']) || $_POST['jam_ke'] < 1 || $_POST['jam_ke'] > 10) $errors[] = "Jam ke harus 1-10";
+    if (empty($_POST['waktu_mulai'])) $errors[] = "Waktu mulai harus diisi";
+    if (empty($_POST['waktu_selesai'])) $errors[] = "Waktu selesai harus diisi";
+    if (empty($_POST['mata_kuliah'])) $errors[] = "Mata kuliah harus diisi";
+    if (empty($_POST['dosen'])) $errors[] = "Dosen harus diisi";
+    if (empty($_POST['ruang'])) $errors[] = "Ruang harus dipilih";
+    if (empty($_POST['semester'])) $errors[] = "Semester harus dipilih";
+    if (empty($_POST['tahun_akademik'])) $errors[] = "Tahun akademik harus dipilih";
+
+    // Validasi waktu
+    $time_error = validateScheduleTime($_POST['waktu_mulai'], $_POST['waktu_selesai']);
+    if ($time_error) $errors[] = $time_error;
+
+    if (count($errors) > 0) {
+        $_SESSION['error'] = implode("<br>", $errors);
+        header('Location: manage_schedule.php');
+        exit();
+    }
+
     // Gabungkan waktu mulai dan selesai
     $waktu = $_POST['waktu_mulai'] . " - " . $_POST['waktu_selesai'];
-    
+
     // Cek bentrok jadwal
     $conflicts = checkScheduleConflict(
-        $db, 
-        $_POST['kelas'], 
-        $_POST['hari'], 
-        $_POST['waktu_mulai'], 
-        $_POST['waktu_selesai'], 
-        $_POST['semester'], 
-        $_POST['tahun_akademik'], 
-        $_POST['dosen'], 
+        $db,
+        $_POST['kelas'],
+        $_POST['hari'],
+        $_POST['waktu_mulai'],
+        $_POST['waktu_selesai'],
+        $_POST['semester'],
+        $_POST['tahun_akademik'],
+        $_POST['dosen'],
         $_POST['ruang']
     );
-    
-    if(!empty($conflicts)) {
+
+    if (!empty($conflicts)) {
         $_SESSION['error'] = implode("<br>", $conflicts);
         header('Location: manage_schedule.php');
         exit();
     }
-    
+
     // Insert jadwal
     $query = "INSERT INTO schedules (kelas, hari, jam_ke, waktu, mata_kuliah, dosen, ruang, semester, tahun_akademik) 
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -152,69 +308,73 @@ if(isset($_POST['add_schedule'])) {
         $_POST['semester'],
         $_POST['tahun_akademik']
     ]);
-    
-    if($success) {
-        logActivity($db, $_SESSION['user_id'], 'Tambah Jadwal', 
-                   "Kelas: {$_POST['kelas']}, Matkul: {$_POST['mata_kuliah']}, Hari: {$_POST['hari']}");
+
+    if ($success) {
+        logActivity(
+            $db,
+            $_SESSION['user_id'],
+            'Tambah Jadwal',
+            "Kelas: {$_POST['kelas']}, Matkul: {$_POST['mata_kuliah']}, Hari: {$_POST['hari']}"
+        );
         $_SESSION['message'] = "Jadwal berhasil ditambahkan!";
     } else {
         $_SESSION['error'] = "Gagal menambahkan jadwal.";
     }
-    
+
     header('Location: manage_schedule.php');
     exit();
 }
 
 // Edit jadwal
-if(isset($_POST['edit_schedule'])) {
+if (isset($_POST['edit_schedule'])) {
     // Validasi input
     $errors = [];
-    
-    if(empty($_POST['id'])) $errors[] = "ID jadwal tidak valid";
-    if(empty($_POST['kelas'])) $errors[] = "Kelas harus diisi";
-    if(empty($_POST['hari'])) $errors[] = "Hari harus dipilih";
-    if(empty($_POST['jam_ke']) || $_POST['jam_ke'] < 1 || $_POST['jam_ke'] > 10) $errors[] = "Jam ke harus 1-10";
-    if(empty($_POST['waktu_mulai'])) $errors[] = "Waktu mulai harus diisi";
-    if(empty($_POST['waktu_selesai'])) $errors[] = "Waktu selesai harus diisi";
-    if(empty($_POST['mata_kuliah'])) $errors[] = "Mata kuliah harus diisi";
-    if(empty($_POST['dosen'])) $errors[] = "Dosen harus diisi";
-    if(empty($_POST['ruang'])) $errors[] = "Ruang harus dipilih";
-    if(empty($_POST['semester'])) $errors[] = "Semester harus dipilih";
-    if(empty($_POST['tahun_akademik'])) $errors[] = "Tahun akademik harus dipilih";
-    
+
+    if (empty($_POST['id'])) $errors[] = "ID jadwal tidak valid";
+    if (empty($_POST['kelas'])) $errors[] = "Kelas harus diisi";
+    if (empty($_POST['hari'])) $errors[] = "Hari harus dipilih";
+    if (empty($_POST['jam_ke']) || $_POST['jam_ke'] < 1 || $_POST['jam_ke'] > 10) $errors[] = "Jam ke harus 1-10";
+    if (empty($_POST['waktu_mulai'])) $errors[] = "Waktu mulai harus diisi";
+    if (empty($_POST['waktu_selesai'])) $errors[] = "Waktu selesai harus diisi";
+    if (empty($_POST['mata_kuliah'])) $errors[] = "Mata kuliah harus diisi";
+    if (empty($_POST['dosen'])) $errors[] = "Dosen harus diisi";
+    if (empty($_POST['ruang'])) $errors[] = "Ruang harus dipilih";
+    if (empty($_POST['semester'])) $errors[] = "Semester harus dipilih";
+    if (empty($_POST['tahun_akademik'])) $errors[] = "Tahun akademik harus dipilih";
+
     // Validasi waktu
     $time_error = validateScheduleTime($_POST['waktu_mulai'], $_POST['waktu_selesai']);
     if ($time_error) $errors[] = $time_error;
-    
-    if(count($errors) > 0) {
+
+    if (count($errors) > 0) {
         $_SESSION['error'] = implode("<br>", $errors);
         header('Location: manage_schedule.php');
         exit();
     }
-    
+
     // Gabungkan waktu mulai dan selesai
     $waktu = $_POST['waktu_mulai'] . " - " . $_POST['waktu_selesai'];
-    
+
     // Cek bentrok jadwal (kecuali dengan diri sendiri)
     $conflicts = checkScheduleConflict(
-        $db, 
-        $_POST['kelas'], 
-        $_POST['hari'], 
-        $_POST['waktu_mulai'], 
-        $_POST['waktu_selesai'], 
-        $_POST['semester'], 
-        $_POST['tahun_akademik'], 
-        $_POST['dosen'], 
+        $db,
+        $_POST['kelas'],
+        $_POST['hari'],
+        $_POST['waktu_mulai'],
+        $_POST['waktu_selesai'],
+        $_POST['semester'],
+        $_POST['tahun_akademik'],
+        $_POST['dosen'],
         $_POST['ruang'],
         $_POST['id']
     );
-    
-    if(!empty($conflicts)) {
+
+    if (!empty($conflicts)) {
         $_SESSION['error'] = implode("<br>", $conflicts);
         header('Location: manage_schedule.php');
         exit();
     }
-    
+
     // Update jadwal
     $query = "UPDATE schedules SET 
               kelas = ?, hari = ?, jam_ke = ?, waktu = ?, mata_kuliah = ?, 
@@ -233,53 +393,53 @@ if(isset($_POST['edit_schedule'])) {
         $_POST['tahun_akademik'],
         $_POST['id']
     ]);
-    
-    if($success) {
+
+    if ($success) {
         logActivity($db, $_SESSION['user_id'], 'Edit Jadwal', "ID: {$_POST['id']}");
         $_SESSION['message'] = "Jadwal berhasil diperbarui!";
     } else {
         $_SESSION['error'] = "Gagal memperbarui jadwal.";
     }
-    
+
     header('Location: manage_schedule.php');
     exit();
 }
 
 // Hapus jadwal
-if(isset($_GET['delete'])) {
+if (isset($_GET['delete'])) {
     $query = "DELETE FROM schedules WHERE id = ?";
     $stmt = $db->prepare($query);
     $success = $stmt->execute([$_GET['delete']]);
-    
-    if($success) {
+
+    if ($success) {
         logActivity($db, $_SESSION['user_id'], 'Hapus Jadwal', "ID: {$_GET['delete']}");
         $_SESSION['message'] = "Jadwal berhasil dihapus!";
     } else {
         $_SESSION['error'] = "Gagal menghapus jadwal.";
     }
-    
+
     header('Location: manage_schedule.php');
     exit();
 }
 
 // Hapus semua jadwal
-if(isset($_POST['delete_all_schedules'])) {
+if (isset($_POST['delete_all_schedules'])) {
     // Hitung jumlah data sebelum dihapus
     $total_data = count($schedules);
-    
+
     // Verifikasi password
-    if(password_verify($_POST['confirm_password'], $_SESSION['password_hash'])) {
+    if (password_verify($_POST['confirm_password'], $_SESSION['password_hash'])) {
         $query = "DELETE FROM schedules";
         $stmt = $db->prepare($query);
         $success = $stmt->execute();
-        
-        if($success) {
+
+        if ($success) {
             logActivity($db, $_SESSION['user_id'], 'Hapus Semua Jadwal', "Semua jadwal dihapus, total: $total_data data");
             $_SESSION['message'] = "Semua jadwal ($total_data data) berhasil dihapus!";
         } else {
             $_SESSION['error'] = "Gagal menghapus semua jadwal.";
         }
-        
+
         header('Location: manage_schedule.php');
         exit();
     } else {
@@ -303,6 +463,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
 ?>
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
@@ -316,14 +477,15 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             box-sizing: border-box;
             max-width: 100%;
         }
-        
-        html, body {
+
+        html,
+        body {
             width: 100%;
             overflow-x: hidden;
             margin: 0;
             padding: 0;
         }
-        
+
         .sidebar {
             background: linear-gradient(135deg, #2c3e50, #4a6491);
             color: white;
@@ -333,7 +495,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             z-index: 1050;
             overflow-y: auto;
         }
-        
+
         .main-content {
             margin-left: 250px;
             padding: 20px;
@@ -341,31 +503,32 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             background-color: #f8f9fa;
             width: calc(100% - 250px);
         }
-        
+
         .navbar-custom {
             background: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 15px 0;
         }
-        
+
         .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
+            color: rgba(255, 255, 255, 0.8);
             padding: 12px 20px;
             margin: 5px 10px;
             border-radius: 10px;
             transition: all 0.3s;
         }
-        
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: rgba(255,255,255,0.1);
+
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            background: rgba(255, 255, 255, 0.1);
             color: white;
         }
-        
+
         .sidebar .nav-link i {
             width: 20px;
             margin-right: 10px;
         }
-        
+
         .user-avatar {
             width: 40px;
             height: 40px;
@@ -377,16 +540,17 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             color: white;
             font-weight: bold;
         }
-        
+
         /* ========== PERBAIKAN UNTUK MOBILE ========== */
         @media (max-width: 768px) {
+
             /* Main content mobile */
             .main-content {
                 margin-left: 0;
                 width: 100%;
                 padding: 15px 10px;
             }
-            
+
             /* Navbar fixed untuk mobile */
             .mobile-nav-fixed {
                 position: fixed;
@@ -395,59 +559,84 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 right: 0;
                 z-index: 1040;
                 background: white;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             }
-            
+
             .content-with-fixed-nav {
                 padding-top: 70px;
             }
-            
+
             /* Perbaikan untuk semua elemen agar tidak keluar layar */
-            .container-fluid, .container {
+            .container-fluid,
+            .container {
                 padding-left: 10px !important;
                 padding-right: 10px !important;
                 max-width: 100% !important;
             }
-            
+
             .row {
                 margin-left: -5px;
                 margin-right: -5px;
             }
-            
-            .col, .col-1, .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11, .col-12,
-            .col-md, .col-md-1, .col-md-2, .col-md-3, .col-md-4, .col-md-5, .col-md-6, .col-md-7, .col-md-8, .col-md-9, .col-md-10, .col-md-11, .col-md-12 {
+
+            .col,
+            .col-1,
+            .col-2,
+            .col-3,
+            .col-4,
+            .col-5,
+            .col-6,
+            .col-7,
+            .col-8,
+            .col-9,
+            .col-10,
+            .col-11,
+            .col-12,
+            .col-md,
+            .col-md-1,
+            .col-md-2,
+            .col-md-3,
+            .col-md-4,
+            .col-md-5,
+            .col-md-6,
+            .col-md-7,
+            .col-md-8,
+            .col-md-9,
+            .col-md-10,
+            .col-md-11,
+            .col-md-12 {
                 padding-left: 5px;
                 padding-right: 5px;
             }
-            
+
             /* Page header mobile */
             .page-header {
                 padding: 15px;
                 margin: 10px 0 15px 0;
                 border-radius: 8px;
             }
-            
+
             /* Filter section mobile */
             .filter-section {
                 padding: 15px 10px;
                 margin: 0 0 15px 0;
                 border-radius: 8px;
             }
-            
+
             /* Table container mobile */
             .table-container {
                 padding: 10px;
                 border-radius: 8px;
                 margin: 0;
             }
-            
+
             /* Table responsive */
             .table-responsive {
                 border-radius: 8px;
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
             }
-            
+
             /* Stat cards mobile */
             .stat-card {
                 padding: 12px 8px;
@@ -455,65 +644,67 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 margin-bottom: 8px;
                 text-align: center;
             }
-            
+
             .stat-card i {
                 font-size: 1.5rem;
                 margin-bottom: 5px;
             }
-            
+
             .stat-card .number {
                 font-size: 1.2rem;
             }
-            
+
             .stat-card .label {
                 font-size: 0.8rem;
             }
-            
+
             /* Tombol mobile */
             .btn {
                 padding: 8px 12px;
                 font-size: 14px;
                 white-space: nowrap;
             }
-            
+
             .btn-sm {
                 padding: 4px 8px;
                 font-size: 12px;
             }
-            
+
             /* Form controls mobile */
-            .form-control, .form-select {
+            .form-control,
+            .form-select {
                 font-size: 14px;
                 padding: 8px 12px;
             }
-            
+
             /* Tabel mobile */
             table {
                 font-size: 12px;
             }
-            
-            .table td, .table th {
+
+            .table td,
+            .table th {
                 padding: 8px 5px;
             }
-            
+
             /* Badge mobile */
             .badge {
                 font-size: 11px;
                 padding: 4px 8px;
             }
-            
+
             /* Modal mobile */
             .modal-dialog {
                 margin: 10px;
                 max-width: calc(100vw - 20px);
             }
-            
+
             .modal-body {
                 max-height: 65vh;
                 overflow-y: auto;
                 padding: 15px;
             }
-            
+
             /* DataTables mobile */
             .dataTables_wrapper .dataTables_length,
             .dataTables_wrapper .dataTables_filter,
@@ -522,150 +713,151 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 padding: 0 5px;
                 font-size: 12px;
             }
-            
+
             /* Alert mobile */
             .alert {
                 padding: 10px 15px;
                 font-size: 14px;
                 margin: 10px 0;
             }
-            
+
             /* Toggler button styling */
             .navbar-toggler.btn-light {
                 border: 1px solid #ddd;
                 padding: 6px 10px;
             }
-            
+
             /* Atur konten untuk mobile dengan navbar fixed */
             .content-with-fixed-nav {
                 padding-top: 70px;
             }
-            
+
             /* Hilangkan overflow horizontal di body */
             body {
                 overflow-x: hidden;
                 position: relative;
             }
-            
+
             /* Perbaikan time-row di mobile */
             .time-row {
                 flex-direction: column;
                 gap: 10px;
             }
-            
-            .time-row > div {
+
+            .time-row>div {
                 width: 100%;
             }
         }
-        
+
         /* Untuk layar sangat kecil (di bawah 576px) */
         @media (max-width: 576px) {
             .main-content {
                 padding: 10px 8px;
             }
-            
+
             .page-header h5 {
                 font-size: 1.1rem;
             }
-            
+
             .page-header p {
                 font-size: 0.9rem;
             }
-            
+
             .filter-section h6 {
                 font-size: 1rem;
             }
-            
+
             /* Grid system untuk mobile kecil */
             .row.g-2 {
                 margin-left: -4px;
                 margin-right: -4px;
             }
-            
-            .row.g-2 > [class*="col-"] {
+
+            .row.g-2>[class*="col-"] {
                 padding-left: 4px;
                 padding-right: 4px;
             }
-            
+
             /* Tombol aksi di tabel */
             .btn-group-mobile {
                 display: flex;
                 gap: 4px;
             }
-            
+
             .btn-group-mobile .btn {
                 padding: 3px 6px;
                 min-width: 32px;
             }
-            
+
             /* Modal untuk mobile kecil */
-            .modal-header, .modal-footer {
+            .modal-header,
+            .modal-footer {
                 padding: 12px 15px;
             }
-            
+
             .modal-title {
                 font-size: 1.1rem;
             }
         }
-        
+
         /* ========== STYLE UMUM (Desktop & Mobile) ========== */
         .content-wrapper {
             padding-top: 20px;
         }
-        
+
         .page-header {
             background: white;
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        
+
         .card {
             border-radius: 10px;
             border: none;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             margin-bottom: 20px;
         }
-        
+
         .btn-danger {
             background: linear-gradient(135deg, #dc3545, #c82333);
             border: none;
             transition: all 0.3s;
         }
-        
+
         .btn-danger:hover {
             background: linear-gradient(135deg, #c82333, #bd2130);
             transform: translateY(-2px);
             box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
         }
-        
+
         .modal-header.bg-danger {
             background: linear-gradient(135deg, #dc3545, #c82333) !important;
         }
-        
+
         .btn-close-white {
             filter: invert(1) grayscale(100%) brightness(200%);
         }
-        
+
         .dataTables_wrapper .dataTables_length,
         .dataTables_wrapper .dataTables_filter,
         .dataTables_wrapper .dataTables_info,
         .dataTables_wrapper .dataTables_paginate {
             margin: 10px 0;
         }
-        
+
         .alert {
             border: none;
             border-radius: 10px;
         }
-        
+
         .badge-count {
             font-size: 0.8em;
             padding: 3px 8px;
             border-radius: 10px;
         }
-        
+
         .time-slot {
             font-size: 0.85em;
             color: #666;
@@ -673,17 +865,17 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             padding: 2px 6px;
             border-radius: 4px;
         }
-        
+
         .time-row {
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        
-        .time-row > div {
+
+        .time-row>div {
             flex: 1;
         }
-        
+
         .stat-card {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -691,83 +883,93 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             padding: 15px;
             margin-bottom: 15px;
         }
-        
+
         .stat-card i {
             font-size: 2rem;
             margin-bottom: 10px;
         }
-        
+
         .stat-card .number {
             font-size: 1.5rem;
             font-weight: bold;
         }
-        
+
         .stat-card .label {
             font-size: 0.9rem;
             opacity: 0.9;
         }
-        
+
         .filter-section {
             background: white;
             border-radius: 10px;
             padding: 15px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        
+
         .filter-section h6 {
             color: #2c3e50;
             font-weight: 600;
         }
-        
+
         .active-filter {
             border-left: 4px solid #4a6491;
             background-color: #f8f9fa;
         }
-        
+
         /* DataTables responsive */
         .dataTables_scroll {
             width: 100% !important;
         }
-        
+
         .dataTables_scrollBody {
             overflow-x: auto !important;
             -webkit-overflow-scrolling: touch;
         }
-        
+
         /* Perbaikan untuk modal di mobile */
         .modal {
             padding-left: 0 !important;
             padding-right: 0 !important;
         }
-        
+
         .modal-backdrop {
             z-index: 1040;
         }
-        
+
         /* Utility classes */
         .flex-fill {
             flex: 1 1 auto;
         }
-        
-        .gap-1 { gap: 0.25rem; }
-        .gap-2 { gap: 0.5rem; }
-        .gap-3 { gap: 1rem; }
-        
+
+        .gap-1 {
+            gap: 0.25rem;
+        }
+
+        .gap-2 {
+            gap: 0.5rem;
+        }
+
+        .gap-3 {
+            gap: 1rem;
+        }
+
         /* Style untuk input time */
         input[type="time"] {
             min-height: 38px;
             padding: 0.375rem 0.75rem;
         }
-        
+
         @media (max-width: 768px) {
             input[type="time"] {
-                font-size: 16px; /* Mencegah zoom otomatis di iOS */
+                font-size: 16px;
+                /* Mencegah zoom otomatis di iOS */
                 padding: 0.5rem 0.75rem;
             }
         }
     </style>
 </head>
+
 <body>
     <div class="d-flex">
         <!-- Sidebar Desktop -->
@@ -823,29 +1025,31 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             <!-- NAVBAR MOBILE -->
             <nav class="navbar navbar-expand-lg navbar-custom d-md-none mb-4">
                 <div class="container-fluid">
-                    <button class="navbar-toggler d-md-none" type="button" data-bs-toggle="collapse" 
-                            data-bs-target="#mobileSidebar">
+                    <button class="navbar-toggler d-md-none" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#mobileSidebar">
                         <i class="fas fa-bars"></i>
                     </button>
-                    
+
                     <div class="d-flex align-items-center">
                         <h4 class="mb-0">Kelola Jadwal</h4>
                     </div>
-                    
+
                     <div class="d-flex align-items-center">
                         <div class="dropdown">
-                            <button class="btn btn-light dropdown-toggle" type="button" 
-                                    data-bs-toggle="dropdown">
+                            <button class="btn btn-light dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown">
                                 <i class="fas fa-user"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="profile.php">
-                                    <i class="fas fa-user me-2"></i>Profile
-                                </a></li>
-                                <li><hr class="dropdown-divider"></li>
+                                        <i class="fas fa-user me-2"></i>Profile
+                                    </a></li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
                                 <li><a class="dropdown-item text-danger" href="logout.php">
-                                    <i class="fas fa-sign-out-alt me-2"></i>Logout
-                                </a></li>
+                                        <i class="fas fa-sign-out-alt me-2"></i>Logout
+                                    </a></li>
                             </ul>
                         </div>
                     </div>
@@ -856,7 +1060,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             <div class="collapse d-md-none mb-4" id="mobileSidebar">
                 <div class="card">
                     <div class="card-body">
-                       <nav class="nav flex-column">
+                        <nav class="nav flex-column">
                             <a class="nav-link" href="dashboard.php">
                                 <i class="fas fa-tachometer-alt"></i> Dashboard
                             </a>
@@ -897,17 +1101,20 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     <div>
                         <h5 class="mb-1">Daftar Jadwal Kuliah</h5>
                         <p class="text-muted mb-1">
-                            Kelola jadwal kuliah untuk semua kelas 
+                            Kelola jadwal kuliah untuk semua kelas
                             <span class="badge bg-primary badge-count"><?php echo count($schedules); ?> data</span>
                         </p>
                         <small class="text-muted d-block mb-2">
                             Semester Aktif: <strong><?php echo $semester_aktif; ?> - <?php echo $tahun_akademik_aktif; ?></strong>
                         </small>
-                        
+
                         <!-- Tombol untuk Mobile -->
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             <button class="btn btn-danger flex-fill" data-bs-toggle="modal" data-bs-target="#deleteAllModal" <?php echo count($schedules) == 0 ? 'disabled' : ''; ?>>
                                 <i class="fas fa-trash-alt me-1"></i>Hapus Semua
+                            </button>
+                            <button class="btn btn-success flex-fill" data-bs-toggle="modal" data-bs-target="#bulkAddModal">
+                                <i class="fas fa-layer-group me-1"></i>Massal
                             </button>
                             <button class="btn btn-primary flex-fill" data-bs-toggle="modal" data-bs-target="#addModal">
                                 <i class="fas fa-plus me-1"></i>Tambah
@@ -924,8 +1131,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             <label class="form-label">Tahun Akademik</label>
                             <select name="filter_tahun" class="form-control form-control-sm" onchange="this.form.submit()">
                                 <option value="all">Semua Tahun</option>
-                                <?php foreach($tahun_list as $tahun): ?>
-                                    <option value="<?php echo htmlspecialchars($tahun); ?>" 
+                                <?php foreach ($tahun_list as $tahun): ?>
+                                    <option value="<?php echo htmlspecialchars($tahun); ?>"
                                         <?php echo $filter_tahun == $tahun ? 'selected' : ''; ?>>
                                         <?php echo htmlspecialchars($tahun); ?>
                                     </option>
@@ -946,17 +1153,17 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </a>
                         </div>
                     </form>
-                    <?php if($filter_tahun != 'all' || $filter_semester != 'all'): ?>
-                    <div class="mt-2 alert alert-info py-2">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Filter Aktif: 
-                        <?php if($filter_tahun != 'all'): ?>
-                            <span class="badge bg-info me-1">Tahun: <?php echo $filter_tahun; ?></span>
-                        <?php endif; ?>
-                        <?php if($filter_semester != 'all'): ?>
-                            <span class="badge bg-info">Semester: <?php echo $filter_semester; ?></span>
-                        <?php endif; ?>
-                    </div>
+                    <?php if ($filter_tahun != 'all' || $filter_semester != 'all'): ?>
+                        <div class="mt-2 alert alert-info py-2">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Filter Aktif:
+                            <?php if ($filter_tahun != 'all'): ?>
+                                <span class="badge bg-info me-1">Tahun: <?php echo $filter_tahun; ?></span>
+                            <?php endif; ?>
+                            <?php if ($filter_semester != 'all'): ?>
+                                <span class="badge bg-info">Semester: <?php echo $filter_semester; ?></span>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                 </div>
 
@@ -992,16 +1199,16 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     </div>
                 </div>
 
-                <?php 
+                <?php
                 // Tampilkan pesan flash
-                if(isset($_SESSION['message'])) {
+                if (isset($_SESSION['message'])) {
                     echo "<div class='alert alert-success alert-dismissible fade show' role='alert'>
                             {$_SESSION['message']}
                             <button type='button' class='btn-close' data-bs-dismiss='alert'></button>
                           </div>";
                     unset($_SESSION['message']);
                 }
-                if(isset($_SESSION['error'])) {
+                if (isset($_SESSION['error'])) {
                     echo "<div class='alert alert-danger alert-dismissible fade show' role='alert'>
                             {$_SESSION['error']}
                             <button type='button' class='btn-close' data-bs-dismiss='alert'></button>
@@ -1012,7 +1219,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
 
                 <!-- Data Table untuk Mobile -->
                 <div class="table-container">
-                    <?php if(count($schedules) == 0): ?>
+                    <?php if (count($schedules) == 0): ?>
                         <div class="text-center py-4">
                             <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
                             <h6 class="text-muted">Belum ada data jadwal</h6>
@@ -1022,56 +1229,56 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </button>
                         </div>
                     <?php else: ?>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover" id="scheduleTableMobile">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Kelas</th>
-                                    <th>Hari</th>
-                                    <th>Jam</th>
-                                    <th>Matkul</th>
-                                    <th>Dosen</th>
-                                    <th>Ruang</th>
-                                    <th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php $no = 1; ?>
-                                <?php foreach($schedules as $schedule): ?>
-                                <tr>
-                                    <td><?php echo $no++; ?></td>
-                                    <td>
-                                        <span class="badge bg-primary"><?php echo htmlspecialchars($schedule['kelas']); ?></span>
-                                    </td>
-                                    <td><small><?php echo substr($schedule['hari'], 0, 3); ?></small></td>
-                                    <td>
-                                        <span class="badge bg-info"><?php echo $schedule['jam_ke']; ?></span>
-                                    </td>
-                                    <td><small><?php echo substr(htmlspecialchars($schedule['mata_kuliah']), 0, 15); ?>...</small></td>
-                                    <td><small><?php echo substr(htmlspecialchars($schedule['dosen']), 0, 10); ?>...</small></td>
-                                    <td>
-                                        <span class="badge bg-success"><?php echo htmlspecialchars($schedule['ruang']); ?></span>
-                                    </td>
-                                    <td>
-                                        <div class="btn-group-mobile">
-                                            <button class="btn btn-sm btn-warning p-1" onclick="editSchedule(<?php echo htmlspecialchars(json_encode($schedule), ENT_QUOTES, 'UTF-8'); ?>)">
-                                                <i class="fas fa-edit fa-xs"></i>
-                                            </button>
-                                            <a href="?delete=<?php echo $schedule['id']; ?>" class="btn btn-sm btn-danger p-1" onclick="return confirm('Hapus jadwal ini?')">
-                                                <i class="fas fa-trash fa-xs"></i>
-                                            </a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover" id="scheduleTableMobile">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Kelas</th>
+                                        <th>Hari</th>
+                                        <th>Jam</th>
+                                        <th>Matkul</th>
+                                        <th>Dosen</th>
+                                        <th>Ruang</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php $no = 1; ?>
+                                    <?php foreach ($schedules as $schedule): ?>
+                                        <tr>
+                                            <td><?php echo $no++; ?></td>
+                                            <td>
+                                                <span class="badge bg-primary"><?php echo htmlspecialchars($schedule['kelas']); ?></span>
+                                            </td>
+                                            <td><small><?php echo substr($schedule['hari'], 0, 3); ?></small></td>
+                                            <td>
+                                                <span class="badge bg-info"><?php echo $schedule['jam_ke']; ?></span>
+                                            </td>
+                                            <td><small><?php echo substr(htmlspecialchars($schedule['mata_kuliah']), 0, 15); ?>...</small></td>
+                                            <td><small><?php echo substr(htmlspecialchars($schedule['dosen']), 0, 10); ?>...</small></td>
+                                            <td>
+                                                <span class="badge bg-success"><?php echo htmlspecialchars($schedule['ruang']); ?></span>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group-mobile">
+                                                    <button class="btn btn-sm btn-warning p-1" onclick="editSchedule(<?php echo htmlspecialchars(json_encode($schedule), ENT_QUOTES, 'UTF-8'); ?>)">
+                                                        <i class="fas fa-edit fa-xs"></i>
+                                                    </button>
+                                                    <a href="?delete=<?php echo $schedule['id']; ?>" class="btn btn-sm btn-danger p-1" onclick="return confirm('Hapus jadwal ini?')">
+                                                        <i class="fas fa-trash fa-xs"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
-            
+
             <!-- Content untuk Desktop -->
             <div class="content-wrapper d-none d-md-block">
                 <!-- Navbar untuk Desktop -->
@@ -1083,31 +1290,33 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                         <div class="d-flex align-items-center">
                             <span class="me-3"><?php echo date('d F Y'); ?></span>
                             <div class="dropdown">
-                                <button class="btn btn-light dropdown-toggle" type="button" 
-                                        data-bs-toggle="dropdown">
+                                <button class="btn btn-light dropdown-toggle" type="button"
+                                    data-bs-toggle="dropdown">
                                     <?php echo htmlspecialchars($_SESSION['username']); ?>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item" href="profile.php">
-                                        <i class="fas fa-user me-2"></i>Profile
-                                    </a></li>
-                                    <li><hr class="dropdown-divider"></li>
+                                            <i class="fas fa-user me-2"></i>Profile
+                                        </a></li>
+                                    <li>
+                                        <hr class="dropdown-divider">
+                                    </li>
                                     <li><a class="dropdown-item text-danger" href="logout.php">
-                                        <i class="fas fa-sign-out-alt me-2"></i>Logout
-                                    </a></li>
+                                            <i class="fas fa-sign-out-alt me-2"></i>Logout
+                                        </a></li>
                                 </ul>
                             </div>
                         </div>
                     </div>
                 </nav>
-                
+
                 <!-- Page Header untuk Desktop -->
                 <div class="page-header">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <h5 class="mb-1">Daftar Jadwal Kuliah</h5>
                             <p class="text-muted mb-0">
-                                Kelola jadwal kuliah untuk semua kelas 
+                                Kelola jadwal kuliah untuk semua kelas
                                 <span class="badge bg-primary badge-count"><?php echo count($schedules); ?> data</span>
                             </p>
                             <small class="text-muted">
@@ -1118,6 +1327,10 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             <!-- Tombol Hapus Semua -->
                             <button class="btn btn-danger me-2" data-bs-toggle="modal" data-bs-target="#deleteAllModal" <?php echo count($schedules) == 0 ? 'disabled' : ''; ?>>
                                 <i class="fas fa-trash-alt me-2"></i>Hapus Semua
+                            </button>
+                            <!-- Tombol Tambah Massal -->
+                            <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#bulkAddModal">
+                                <i class="fas fa-layer-group me-2"></i>Tambah Massal
                             </button>
                             <!-- Tombol Tambah Jadwal -->
                             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
@@ -1135,8 +1348,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             <label class="form-label">Tahun Akademik</label>
                             <select name="filter_tahun" class="form-control" onchange="this.form.submit()">
                                 <option value="all">Semua Tahun Akademik</option>
-                                <?php foreach($tahun_list as $tahun): ?>
-                                    <option value="<?php echo htmlspecialchars($tahun); ?>" 
+                                <?php foreach ($tahun_list as $tahun): ?>
+                                    <option value="<?php echo htmlspecialchars($tahun); ?>"
                                         <?php echo $filter_tahun == $tahun ? 'selected' : ''; ?>>
                                         <?php echo htmlspecialchars($tahun); ?>
                                     </option>
@@ -1157,17 +1370,17 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </a>
                         </div>
                     </form>
-                    <?php if($filter_tahun != 'all' || $filter_semester != 'all'): ?>
-                    <div class="mt-3 alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i>
-                        Filter Aktif: 
-                        <?php if($filter_tahun != 'all'): ?>
-                            <span class="badge bg-info me-2">Tahun: <?php echo $filter_tahun; ?></span>
-                        <?php endif; ?>
-                        <?php if($filter_semester != 'all'): ?>
-                            <span class="badge bg-info">Semester: <?php echo $filter_semester; ?></span>
-                        <?php endif; ?>
-                    </div>
+                    <?php if ($filter_tahun != 'all' || $filter_semester != 'all'): ?>
+                        <div class="mt-3 alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Filter Aktif:
+                            <?php if ($filter_tahun != 'all'): ?>
+                                <span class="badge bg-info me-2">Tahun: <?php echo $filter_tahun; ?></span>
+                            <?php endif; ?>
+                            <?php if ($filter_semester != 'all'): ?>
+                                <span class="badge bg-info">Semester: <?php echo $filter_semester; ?></span>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                 </div>
 
@@ -1203,19 +1416,19 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     </div>
                 </div>
 
-                <?php 
+                <?php
                 // Tampilkan pesan flash untuk desktop
-                if(isset($_SESSION['message'])) {
+                if (isset($_SESSION['message'])) {
                     echo "<div class='alert alert-success'>{$_SESSION['message']}</div>";
                 }
-                if(isset($_SESSION['error'])) {
+                if (isset($_SESSION['error'])) {
                     echo "<div class='alert alert-danger'>{$_SESSION['error']}</div>";
                 }
                 ?>
 
                 <!-- Data Table untuk Desktop -->
                 <div class="table-container">
-                    <?php if(count($schedules) == 0): ?>
+                    <?php if (count($schedules) == 0): ?>
                         <div class="text-center py-5">
                             <i class="fas fa-calendar-times fa-4x text-muted mb-3"></i>
                             <h5 class="text-muted">Belum ada data jadwal</h5>
@@ -1225,71 +1438,71 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </button>
                         </div>
                     <?php else: ?>
-                    <div class="table-responsive">
-                        <table class="table table-hover" id="scheduleTableDesktop">
-                            <thead>
-                                <tr>
-                                    <th>No</th>
-                                    <th>Kelas</th>
-                                    <th>Hari</th>
-                                    <th>Jam Ke</th>
-                                    <th>Waktu</th>
-                                    <th>Mata Kuliah</th>
-                                    <th>Dosen</th>
-                                    <th>Ruang</th>
-                                    <th>Semester</th>
-                                    <th>Tahun</th>
-                                    <th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php $no = 1; ?>
-                                <?php foreach($schedules as $schedule): ?>
-                                <tr>
-                                    <td><?php echo $no++; ?></td>
-                                    <td>
-                                        <span class="badge bg-primary"><?php echo htmlspecialchars($schedule['kelas']); ?></span>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($schedule['hari']); ?></td>
-                                    <td>
-                                        <span class="badge bg-info"><?php echo $schedule['jam_ke']; ?></span>
-                                    </td>
-                                    <td>
-                                        <span class="time-slot"><?php echo htmlspecialchars($schedule['waktu']); ?></span>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($schedule['mata_kuliah']); ?></td>
-                                    <td><?php echo htmlspecialchars($schedule['dosen']); ?></td>
-                                    <td>
-                                        <span class="badge bg-success"><?php echo htmlspecialchars($schedule['ruang']); ?></span>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-<?php echo $schedule['semester'] == 'GANJIL' ? 'warning' : 'success'; ?>">
-                                            <?php echo $schedule['semester']; ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <small><?php echo $schedule['tahun_akademik']; ?></small>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-warning" onclick="editSchedule(<?php echo htmlspecialchars(json_encode($schedule), ENT_QUOTES, 'UTF-8'); ?>)">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <a href="?delete=<?php echo $schedule['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Yakin hapus jadwal ini?')">
-                                            <i class="fas fa-trash"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="scheduleTableDesktop">
+                                <thead>
+                                    <tr>
+                                        <th>No</th>
+                                        <th>Kelas</th>
+                                        <th>Hari</th>
+                                        <th>Jam Ke</th>
+                                        <th>Waktu</th>
+                                        <th>Mata Kuliah</th>
+                                        <th>Dosen</th>
+                                        <th>Ruang</th>
+                                        <th>Semester</th>
+                                        <th>Tahun</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php $no = 1; ?>
+                                    <?php foreach ($schedules as $schedule): ?>
+                                        <tr>
+                                            <td><?php echo $no++; ?></td>
+                                            <td>
+                                                <span class="badge bg-primary"><?php echo htmlspecialchars($schedule['kelas']); ?></span>
+                                            </td>
+                                            <td><?php echo htmlspecialchars($schedule['hari']); ?></td>
+                                            <td>
+                                                <span class="badge bg-info"><?php echo $schedule['jam_ke']; ?></span>
+                                            </td>
+                                            <td>
+                                                <span class="time-slot"><?php echo htmlspecialchars($schedule['waktu']); ?></span>
+                                            </td>
+                                            <td><?php echo htmlspecialchars($schedule['mata_kuliah']); ?></td>
+                                            <td><?php echo htmlspecialchars($schedule['dosen']); ?></td>
+                                            <td>
+                                                <span class="badge bg-success"><?php echo htmlspecialchars($schedule['ruang']); ?></span>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-<?php echo $schedule['semester'] == 'GANJIL' ? 'warning' : 'success'; ?>">
+                                                    <?php echo $schedule['semester']; ?>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <small><?php echo $schedule['tahun_akademik']; ?></small>
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-sm btn-warning" onclick="editSchedule(<?php echo htmlspecialchars(json_encode($schedule), ENT_QUOTES, 'UTF-8'); ?>)">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <a href="?delete=<?php echo $schedule['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Yakin hapus jadwal ini?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Modal Tambah (dengan input waktu format 24 jam) -->
+    <!-- Modal Tambah (single) -->
     <div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -1334,7 +1547,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                     <label>Jam Ke <span class="text-danger">*</span></label>
                                     <select name="jam_ke" class="form-control" required>
                                         <option value="">Pilih Jam Ke</option>
-                                        <?php for($i=1; $i<=10; $i++): ?>
+                                        <?php for ($i = 1; $i <= 10; $i++): ?>
                                             <option value="<?php echo $i; ?>">Jam Ke-<?php echo $i; ?></option>
                                         <?php endfor; ?>
                                     </select>
@@ -1353,8 +1566,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                     <label>Ruang <span class="text-danger">*</span></label>
                                     <select name="ruang" class="form-control" required>
                                         <option value="">Pilih Ruangan</option>
-                                        <?php foreach($rooms as $room): ?>
-                                        <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
+                                        <?php foreach ($rooms as $room): ?>
+                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -1370,8 +1583,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                     <label>Tahun Akademik <span class="text-danger">*</span></label>
                                     <select name="tahun_akademik" class="form-control" required>
                                         <option value="">Pilih Tahun Akademik</option>
-                                        <?php foreach($tahun_list as $tahun): ?>
-                                            <option value="<?php echo htmlspecialchars($tahun); ?>" 
+                                        <?php foreach ($tahun_list as $tahun): ?>
+                                            <option value="<?php echo htmlspecialchars($tahun); ?>"
                                                 <?php echo $tahun == $tahun_akademik_aktif ? 'selected' : ''; ?>>
                                                 <?php echo htmlspecialchars($tahun); ?>
                                             </option>
@@ -1404,7 +1617,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
         </div>
     </div>
 
-    <!-- Modal Edit (dengan input waktu format 24 jam) -->
+    <!-- Modal Edit -->
     <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -1448,7 +1661,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                 <div class="mb-3">
                                     <label>Jam Ke <span class="text-danger">*</span></label>
                                     <select name="jam_ke" id="edit_jam_ke" class="form-control" required>
-                                        <?php for($i=1; $i<=10; $i++): ?>
+                                        <?php for ($i = 1; $i <= 10; $i++): ?>
                                             <option value="<?php echo $i; ?>">Jam Ke-<?php echo $i; ?></option>
                                         <?php endfor; ?>
                                     </select>
@@ -1466,8 +1679,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                 <div class="mb-3">
                                     <label>Ruang <span class="text-danger">*</span></label>
                                     <select name="ruang" id="edit_ruang" class="form-control" required>
-                                        <?php foreach($rooms as $room): ?>
-                                        <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
+                                        <?php foreach ($rooms as $room): ?>
+                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -1482,7 +1695,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                     <label>Tahun Akademik <span class="text-danger">*</span></label>
                                     <select name="tahun_akademik" id="edit_tahun_akademik" class="form-control" required>
                                         <option value="">Pilih Tahun Akademik</option>
-                                        <?php foreach($tahun_list as $tahun): ?>
+                                        <?php foreach ($tahun_list as $tahun): ?>
                                             <option value="<?php echo htmlspecialchars($tahun); ?>">
                                                 <?php echo htmlspecialchars($tahun); ?>
                                             </option>
@@ -1527,12 +1740,12 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </ul>
                             <p class="mb-0 fw-bold">Masukkan password Anda untuk mengonfirmasi:</p>
                         </div>
-                        
+
                         <div class="mb-3">
                             <label for="confirm_password" class="form-label">Password Konfirmasi</label>
-                            <input type="password" class="form-control" id="confirm_password" 
-                                   name="confirm_password" required 
-                                   placeholder="Masukkan password Anda untuk konfirmasi">
+                            <input type="password" class="form-control" id="confirm_password"
+                                name="confirm_password" required
+                                placeholder="Masukkan password Anda untuk konfirmasi">
                             <div class="form-text">
                                 <i class="fas fa-info-circle me-1"></i>
                                 Masukkan password akun Anda untuk mengonfirmasi penghapusan semua data
@@ -1552,6 +1765,120 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
         </div>
     </div>
 
+    <!-- ==================== MODAL TAMBAH MASSAL ==================== -->
+    <div class="modal fade" id="bulkAddModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="POST" id="bulkAddForm">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title"><i class="fas fa-layer-group me-2"></i>Tambah Jadwal Massal (Multi Jam)</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>Kelas <span class="text-danger">*</span></label>
+                                    <input type="text" name="kelas" class="form-control" required placeholder="Contoh: 1A, 2B">
+                                </div>
+                                <div class="mb-3">
+                                    <label>Hari <span class="text-danger">*</span></label>
+                                    <select name="hari" class="form-control" required>
+                                        <option value="">Pilih Hari</option>
+                                        <option value="SENIN">SENIN</option>
+                                        <option value="SELASA">SELASA</option>
+                                        <option value="RABU">RABU</option>
+                                        <option value="KAMIS">KAMIS</option>
+                                        <option value="JUMAT">JUMAT</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label>Mata Kuliah <span class="text-danger">*</span></label>
+                                    <input type="text" name="mata_kuliah" class="form-control" required placeholder="Nama mata kuliah">
+                                </div>
+                                <div class="mb-3">
+                                    <label>Dosen <span class="text-danger">*</span></label>
+                                    <input type="text" name="dosen" class="form-control" required placeholder="Nama dosen">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label>Ruang <span class="text-danger">*</span></label>
+                                    <select name="ruang" class="form-control" required>
+                                        <option value="">Pilih Ruangan</option>
+                                        <?php foreach ($rooms as $room): ?>
+                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label>Semester <span class="text-danger">*</span></label>
+                                    <select name="semester" class="form-control" required>
+                                        <option value="GANJIL" <?php echo $semester_aktif == 'GANJIL' ? 'selected' : ''; ?>>GANJIL</option>
+                                        <option value="GENAP" <?php echo $semester_aktif == 'GENAP' ? 'selected' : ''; ?>>GENAP</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label>Tahun Akademik <span class="text-danger">*</span></label>
+                                    <select name="tahun_akademik" class="form-control" required>
+                                        <option value="">Pilih Tahun</option>
+                                        <?php foreach ($tahun_list as $tahun): ?>
+                                            <option value="<?php echo htmlspecialchars($tahun); ?>" <?php echo $tahun == $tahun_akademik_aktif ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($tahun); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Pilih jam ke yang akan diisi:</strong> (durasi 50 menit per jam, sesuai jadwal standar)
+                        </div>
+
+                        <div class="row">
+                            <?php
+                            // Mapping waktu untuk preview di label
+                            $time_slots = [];
+                            for ($i = 1; $i <= 10; $i++) {
+                                $slot = getTimeSlotByJamKe($i);
+                                $time_slots[$i] = $slot ? implode(' - ', $slot) : 'Tidak tersedia';
+                            }
+                            ?>
+                            <div class="col-12">
+                                <div class="row">
+                                    <?php for ($i = 1; $i <= 10; $i++): ?>
+                                        <div class="col-6 col-md-4 col-lg-3 mb-2">
+                                            <div class="form-check">
+                                                <input class="form-check-input jam-checkbox" type="checkbox" name="jam_ke_list[]" value="<?php echo $i; ?>" id="jam_<?php echo $i; ?>">
+                                                <label class="form-check-label" for="jam_<?php echo $i; ?>">
+                                                    <strong>Jam ke-<?php echo $i; ?></strong><br>
+                                                    <small class="text-muted"><?php echo $time_slots[$i]; ?></small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    <?php endfor; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllJam">Pilih Semua</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllJam">Batal Pilih</button>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" name="add_bulk_schedule" class="btn btn-success">
+                            <i class="fas fa-save me-2"></i>Simpan Massal
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js"></script>
@@ -1559,83 +1886,125 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
     <script>
         $(document).ready(function() {
             // Inisialisasi DataTables untuk desktop
-            <?php if(count($schedules) > 0): ?>
-            $('#scheduleTableDesktop').DataTable({
-                "language": {
-                    "url": "https://cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
-                },
-                "pageLength": 25,
-                "order": [[0, 'asc']],
-                "columnDefs": [
-                    { "orderable": false, "targets": [10] }
-                ],
-                "dom": '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rt<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
-                "responsive": true,
-                "stateSave": true,
-                "scrollX": false
-            });
-            
-            // Inisialisasi DataTables untuk mobile
-            $('#scheduleTableMobile').DataTable({
-                "language": {
-                    "url": "https://cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
-                },
-                "pageLength": 10,
-                "order": [[0, 'asc']],
-                "columnDefs": [
-                    { "orderable": false, "targets": [7] }
-                ],
-                "responsive": true,
-                "scrollX": true,
-                "autoWidth": false,
-                "dom": '<"row"<"col-sm-12"f>>rt<"row"<"col-sm-12"ip>>',
-                "stateSave": true,
-                "pagingType": "simple_numbers"
-            });
+            <?php if (count($schedules) > 0): ?>
+                $('#scheduleTableDesktop').DataTable({
+                    "language": {
+                        "url": "https://cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
+                    },
+                    "pageLength": 25,
+                    "order": [
+                        [0, 'asc']
+                    ],
+                    "columnDefs": [{
+                        "orderable": false,
+                        "targets": [10]
+                    }],
+                    "dom": '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rt<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
+                    "responsive": true,
+                    "stateSave": true,
+                    "scrollX": false
+                });
+
+                // Inisialisasi DataTables untuk mobile
+                $('#scheduleTableMobile').DataTable({
+                    "language": {
+                        "url": "https://cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
+                    },
+                    "pageLength": 10,
+                    "order": [
+                        [0, 'asc']
+                    ],
+                    "columnDefs": [{
+                        "orderable": false,
+                        "targets": [7]
+                    }],
+                    "responsive": true,
+                    "scrollX": true,
+                    "autoWidth": false,
+                    "dom": '<"row"<"col-sm-12"f>>rt<"row"<"col-sm-12"ip>>',
+                    "stateSave": true,
+                    "pagingType": "simple_numbers"
+                });
             <?php endif; ?>
-            
+
+            // Select / deselect all jam
+            $('#selectAllJam').click(function() {
+                $('.jam-checkbox').prop('checked', true);
+            });
+            $('#deselectAllJam').click(function() {
+                $('.jam-checkbox').prop('checked', false);
+            });
+
+            // Validasi client-side bulk form
+            $('#bulkAddForm').on('submit', function(e) {
+                var checked = $('.jam-checkbox:checked').length;
+                if (checked === 0) {
+                    e.preventDefault();
+                    alert('Pilih minimal satu jam ke!');
+                    return false;
+                }
+
+                // Konfirmasi
+                var kelas = $('input[name="kelas"]').val();
+                var matkul = $('input[name="mata_kuliah"]').val();
+                if (!confirm('Tambah ' + checked + ' jadwal untuk mata kuliah "' + matkul + '" kelas ' + kelas + '?')) {
+                    e.preventDefault();
+                    return false;
+                }
+                return true;
+            });
+
+            // Reset form saat modal ditutup
+            $('#bulkAddModal').on('hidden.bs.modal', function() {
+                $(this).find('form')[0].reset();
+                $('.jam-checkbox').prop('checked', false);
+                // Set default semester & tahun
+                $(this).find('select[name="semester"]').val('<?php echo $semester_aktif; ?>');
+                $(this).find('select[name="tahun_akademik"]').val('<?php echo $tahun_akademik_aktif; ?>');
+            });
+
             // Auto focus ke input waktu mulai saat modal tambah terbuka
-            $('#addModal').on('shown.bs.modal', function () {
+            $('#addModal').on('shown.bs.modal', function() {
                 $('#add_waktu_mulai').focus();
             });
-            
+
             // Auto focus ke input password saat modal hapus semua terbuka
-            $('#deleteAllModal').on('shown.bs.modal', function () {
+            $('#deleteAllModal').on('shown.bs.modal', function() {
                 $('#confirm_password').focus();
             });
-            
+
             // Reset form saat modal tambah ditutup
-            $('#addModal').on('hidden.bs.modal', function () {
+            $('#addModal').on('hidden.bs.modal', function() {
                 $(this).find('form')[0].reset();
                 $('#add_waktu_mulai').val('07:30');
                 $('#add_waktu_selesai').val('09:00');
                 // Reset tahun akademik ke aktif
                 $('#addModal select[name="tahun_akademik"]').val('<?php echo $tahun_akademik_aktif; ?>');
             });
-            
+
             // Reset form saat modal hapus semua ditutup
-            $('#deleteAllModal').on('hidden.bs.modal', function () {
+            $('#deleteAllModal').on('hidden.bs.modal', function() {
                 $(this).find('form')[0].reset();
             });
-            
+
             // Validasi untuk modal hapus semua
             $('#deleteAllModal form').on('submit', function(e) {
                 const password = $('#confirm_password').val();
-                if(password.length < 1) {
+                if (password.length < 1) {
                     e.preventDefault();
                     alert('Silakan masukkan password untuk konfirmasi!');
                     $('#confirm_password').focus();
                     return false;
                 }
-                
-                if(!confirm('Apakah Anda yakin ingin menghapus SEMUA data jadwal? Tindakan ini tidak dapat dibatalkan!')) {
+
+                if (!confirm('Apakah Anda yakin ingin menghapus SEMUA data jadwal? Tindakan ini tidak dapat dibatalkan!')) {
                     e.preventDefault();
                     return false;
                 }
-                
+
                 return true;
             });
-            
+
             // Auto adjust end time based on start time
             $('#add_waktu_mulai').on('change', function() {
                 const startTime = $(this).val();
@@ -1643,48 +2012,48 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     const [hours, minutes] = startTime.split(':').map(Number);
                     // Tambah 90 menit (1.5 jam)
                     let totalMinutes = hours * 60 + minutes + 90;
-                    
+
                     // Handle jika melewati tengah malam
                     if (totalMinutes >= 24 * 60) {
                         totalMinutes = totalMinutes - (24 * 60);
                     }
-                    
+
                     const endHours = Math.floor(totalMinutes / 60);
                     const endMinutes = totalMinutes % 60;
                     const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
                     $('#add_waktu_selesai').val(endTime);
-                    
+
                     // Tampilkan notifikasi jika melewati tengah malam
                     if (totalMinutes >= 24 * 60) {
                         alert('Perhatian: Waktu selesai melewati tengah malam!');
                     }
                 }
             });
-            
+
             $('#edit_waktu_mulai').on('change', function() {
                 const startTime = $(this).val();
                 if (startTime) {
                     const [hours, minutes] = startTime.split(':').map(Number);
                     // Tambah 90 menit (1.5 jam)
                     let totalMinutes = hours * 60 + minutes + 90;
-                    
+
                     // Handle jika melewati tengah malam
                     if (totalMinutes >= 24 * 60) {
                         totalMinutes = totalMinutes - (24 * 60);
                     }
-                    
+
                     const endHours = Math.floor(totalMinutes / 60);
                     const endMinutes = totalMinutes % 60;
                     const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
                     $('#edit_waktu_selesai').val(endTime);
-                    
+
                     // Tampilkan notifikasi jika melewati tengah malam
                     if (totalMinutes >= 24 * 60) {
                         alert('Perhatian: Waktu selesai melewati tengah malam!');
                     }
                 }
             });
-            
+
             // Validasi form tambah
             $('#addForm').on('submit', function(e) {
                 const waktu_mulai = $('#add_waktu_mulai').val();
@@ -1694,49 +2063,49 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 const mata_kuliah = $('input[name="mata_kuliah"]').val();
                 const dosen = $('input[name="dosen"]').val();
                 const tahun_akademik = $('select[name="tahun_akademik"]').val();
-                
-                if(!kelas) {
+
+                if (!kelas) {
                     e.preventDefault();
                     alert('Kelas harus diisi');
                     $('input[name="kelas"]').focus();
                     return false;
                 }
-                
-                if(!mata_kuliah) {
+
+                if (!mata_kuliah) {
                     e.preventDefault();
                     alert('Mata kuliah harus diisi');
                     $('input[name="mata_kuliah"]').focus();
                     return false;
                 }
-                
-                if(!dosen) {
+
+                if (!dosen) {
                     e.preventDefault();
                     alert('Dosen harus diisi');
                     $('input[name="dosen"]').focus();
                     return false;
                 }
-                
-                if(!tahun_akademik) {
+
+                if (!tahun_akademik) {
                     e.preventDefault();
                     alert('Tahun akademik harus dipilih');
                     $('select[name="tahun_akademik"]').focus();
                     return false;
                 }
-                
-                if(!waktu_mulai) {
+
+                if (!waktu_mulai) {
                     e.preventDefault();
                     alert('Waktu mulai harus diisi');
                     $('#add_waktu_mulai').focus();
                     return false;
                 }
-                
-                if(!waktu_selesai) {
+
+                if (!waktu_selesai) {
                     e.preventDefault();
                     alert('Waktu selesai harus diisi');
                     $('#add_waktu_selesai').focus();
                     return false;
                 }
-                
+
                 // Validasi format waktu (HH:MM)
                 const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
                 if (!timeRegex.test(waktu_mulai) || !timeRegex.test(waktu_selesai)) {
@@ -1744,14 +2113,14 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     alert('Format waktu tidak valid! Gunakan format 24 jam HH:MM (contoh: 07:30)');
                     return false;
                 }
-                
+
                 // Konversi ke menit untuk perbandingan
                 const [startHour, startMinute] = waktu_mulai.split(':').map(Number);
                 const [endHour, endMinute] = waktu_selesai.split(':').map(Number);
-                
+
                 const startTotalMinutes = startHour * 60 + startMinute;
                 const endTotalMinutes = endHour * 60 + endMinute;
-                
+
                 // Hitung selisih waktu (handle jika melewati tengah malam)
                 let diffMinutes;
                 if (endTotalMinutes >= startTotalMinutes) {
@@ -1760,61 +2129,61 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     // Melewati tengah malam
                     diffMinutes = (24 * 60 - startTotalMinutes) + endTotalMinutes;
                 }
-                
+
                 if (diffMinutes <= 0) {
                     e.preventDefault();
                     alert('Waktu selesai harus setelah waktu mulai!');
                     return false;
                 }
-                
+
                 if (diffMinutes < 30) {
-                    if(!confirm('Durasi waktu kurang dari 30 menit. Apakah Anda yakin?')) {
+                    if (!confirm('Durasi waktu kurang dari 30 menit. Apakah Anda yakin?')) {
                         e.preventDefault();
                         return false;
                     }
                 }
-                
+
                 if (diffMinutes > 240) { // 4 jam
-                    if(!confirm('Durasi waktu lebih dari 4 jam. Apakah Anda yakin?')) {
+                    if (!confirm('Durasi waktu lebih dari 4 jam. Apakah Anda yakin?')) {
                         e.preventDefault();
                         return false;
                     }
                 }
-                
-                if(!jam_ke || jam_ke < 1 || jam_ke > 10) {
+
+                if (!jam_ke || jam_ke < 1 || jam_ke > 10) {
                     e.preventDefault();
                     alert('Jam ke harus dipilih (1-10)');
                     $('select[name="jam_ke"]').focus();
                     return false;
                 }
-                
-                if(!confirm('Simpan jadwal baru?')) {
+
+                if (!confirm('Simpan jadwal baru?')) {
                     e.preventDefault();
                     return false;
                 }
-                
+
                 return true;
             });
-            
+
             // Validasi form edit
             $('#editForm').on('submit', function(e) {
                 const waktu_mulai = $('#edit_waktu_mulai').val();
                 const waktu_selesai = $('#edit_waktu_selesai').val();
                 const tahun_akademik = $('#edit_tahun_akademik').val();
-                
-                if(!tahun_akademik) {
+
+                if (!tahun_akademik) {
                     e.preventDefault();
                     alert('Tahun akademik harus dipilih');
                     $('#edit_tahun_akademik').focus();
                     return false;
                 }
-                
-                if(!waktu_mulai || !waktu_selesai) {
+
+                if (!waktu_mulai || !waktu_selesai) {
                     e.preventDefault();
                     alert('Waktu mulai dan selesai harus diisi');
                     return false;
                 }
-                
+
                 // Validasi format waktu (HH:MM)
                 const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
                 if (!timeRegex.test(waktu_mulai) || !timeRegex.test(waktu_selesai)) {
@@ -1822,14 +2191,14 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     alert('Format waktu tidak valid! Gunakan format 24 jam HH:MM (contoh: 07:30)');
                     return false;
                 }
-                
+
                 // Konversi ke menit untuk perbandingan
                 const [startHour, startMinute] = waktu_mulai.split(':').map(Number);
                 const [endHour, endMinute] = waktu_selesai.split(':').map(Number);
-                
+
                 const startTotalMinutes = startHour * 60 + startMinute;
                 const endTotalMinutes = endHour * 60 + endMinute;
-                
+
                 // Hitung selisih waktu (handle jika melewati tengah malam)
                 let diffMinutes;
                 if (endTotalMinutes >= startTotalMinutes) {
@@ -1838,20 +2207,20 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     // Melewati tengah malam
                     diffMinutes = (24 * 60 - startTotalMinutes) + endTotalMinutes;
                 }
-                
+
                 if (diffMinutes <= 0) {
                     e.preventDefault();
                     alert('Waktu selesai harus setelah waktu mulai!');
                     return false;
                 }
-                
-                if(!confirm('Update jadwal ini?')) {
+
+                if (!confirm('Update jadwal ini?')) {
                     e.preventDefault();
                     return false;
                 }
                 return true;
             });
-            
+
             // Perbaikan untuk mobile: tutup modal saat submit berhasil
             $('form').on('submit', function() {
                 if ($(window).width() < 768) {
@@ -1861,19 +2230,19 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 }
             });
         });
-        
+
         function editSchedule(schedule) {
             $('#edit_id').val(schedule.id);
             $('#edit_kelas').val(schedule.kelas);
             $('#edit_hari').val(schedule.hari);
             $('#edit_jam_ke').val(schedule.jam_ke);
-            
+
             // Pisahkan waktu menjadi waktu_mulai dan waktu_selesai
             var waktuParts = schedule.waktu.split(' - ');
             if (waktuParts.length === 2) {
                 var waktuMulai = waktuParts[0].trim();
                 var waktuSelesai = waktuParts[1].trim();
-                
+
                 // Validasi format
                 var timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
                 if (timeRegex.test(waktuMulai) && timeRegex.test(waktuSelesai)) {
@@ -1889,21 +2258,21 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 $('#edit_waktu_mulai').val('07:30');
                 $('#edit_waktu_selesai').val('09:00');
             }
-            
+
             $('#edit_mata_kuliah').val(schedule.mata_kuliah);
             $('#edit_dosen').val(schedule.dosen);
             $('#edit_ruang').val(schedule.ruang);
             $('#edit_semester').val(schedule.semester);
             $('#edit_tahun_akademik').val(schedule.tahun_akademik);
-            
+
             $('#editModal').modal('show');
         }
-        
+
         // Filter data table by badge click
         function filterTable(filterType, filterValue) {
             const table = $('#scheduleTableDesktop').DataTable();
             table.search('').columns().search('').draw();
-            
+
             if (filterType === 'kelas') {
                 table.column(1).search(filterValue).draw();
             } else if (filterType === 'semester') {
@@ -1912,26 +2281,29 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 table.column(9).search(filterValue).draw();
             }
         }
-        
+
         // Export to Excel (simple implementation)
         function exportToExcel() {
             let table = document.getElementById("scheduleTableDesktop");
             let rows = table.querySelectorAll("tr");
             let csv = [];
-            
+
             for (let i = 0; i < rows.length; i++) {
-                let row = [], cols = rows[i].querySelectorAll("td, th");
-                
+                let row = [],
+                    cols = rows[i].querySelectorAll("td, th");
+
                 for (let j = 0; j < cols.length - 1; j++) { // Exclude action column
                     row.push(cols[j].innerText);
                 }
-                
+
                 csv.push(row.join(","));
             }
-            
-            let csvFile = new Blob([csv.join("\n")], {type: "text/csv"});
+
+            let csvFile = new Blob([csv.join("\n")], {
+                type: "text/csv"
+            });
             let downloadLink = document.createElement("a");
-            downloadLink.download = "jadwal_kuliah_" + new Date().toISOString().slice(0,10) + ".csv";
+            downloadLink.download = "jadwal_kuliah_" + new Date().toISOString().slice(0, 10) + ".csv";
             downloadLink.href = window.URL.createObjectURL(csvFile);
             downloadLink.style.display = "none";
             document.body.appendChild(downloadLink);
@@ -1940,6 +2312,7 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
         }
     </script>
 </body>
+
 </html>
 <?php
 // Reset session messages untuk menghindari duplikasi

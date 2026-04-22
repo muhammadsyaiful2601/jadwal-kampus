@@ -2235,7 +2235,7 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
         if (yearsElement) {
             yearsElement.textContent = new Date().getFullYear();
         }
-        
+
         // JavaScript variables untuk default values
         const currentDay = <?php echo date('N'); ?>;
         const firstClass = <?php echo json_encode(!empty($kelas_list) ? $kelas_list[0] : 'A1'); ?>;
@@ -2600,6 +2600,8 @@ $firstClass = !empty($kelas_list) ? $kelas_list[0] : 'A1';
                     startCountdownTimer();
                 }
             });
+            const d = new Date();
+            const params = new URLSearchParams(window.location.search);
         </script>
     <?php endif; ?>
 </body>
