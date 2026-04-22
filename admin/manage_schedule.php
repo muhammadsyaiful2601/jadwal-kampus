@@ -24,7 +24,7 @@ if (!in_array($_SESSION['role'], ['admin', 'superadmin'])) {
     exit();
 }
 
-$database = new Database();
+$database = new \Database();
 $db = $database->getConnection();
 
 if (!$db) {
@@ -113,20 +113,39 @@ function getTimeSlotByJamKe($jam_ke)
     return isset($mapping[$jam_ke]) ? $mapping[$jam_ke] : null;
 }
 
-// ========== PROSES TAMBAH MASSAL ==========
+// ========== PROSES TAMBAH MASSAL (MULTI-SLOT) ==========
 if (isset($_POST['add_bulk_schedule'])) {
     $errors = [];
 
-    // Validasi input dasar
-    $required = ['kelas', 'hari', 'mata_kuliah', 'dosen', 'ruang', 'semester', 'tahun_akademik'];
-    foreach ($required as $field) {
+    // Validasi input dasar (kelas, hari, semester, tahun_akademik)
+    $required_common = ['kelas', 'hari', 'semester', 'tahun_akademik'];
+    foreach ($required_common as $field) {
         if (empty($_POST[$field])) {
             $errors[] = ucfirst(str_replace('_', ' ', $field)) . " harus diisi.";
         }
     }
 
-    if (empty($_POST['jam_ke_list']) || !is_array($_POST['jam_ke_list'])) {
-        $errors[] = "Pilih minimal satu jam ke.";
+    // Validasi groups
+    if (empty($_POST['groups']) || !is_array($_POST['groups'])) {
+        $errors[] = "Minimal satu slot mata kuliah harus diisi.";
+    } else {
+        $groups = $_POST['groups'];
+        $group_count = 0;
+        foreach ($groups as $idx => $group) {
+            if (
+                empty($group['mata_kuliah']) ||
+                empty($group['dosen']) ||
+                empty($group['ruang']) ||
+                empty($group['jam_ke_list']) || !is_array($group['jam_ke_list'])
+            ) {
+                $errors[] = "Slot #" . ($idx + 1) . ": Mata kuliah, dosen, ruang, dan minimal satu jam harus diisi.";
+                continue;
+            }
+            $group_count++;
+        }
+        if ($group_count == 0) {
+            $errors[] = "Tidak ada slot yang valid untuk disimpan.";
+        }
     }
 
     if (!empty($errors)) {
@@ -137,54 +156,82 @@ if (isset($_POST['add_bulk_schedule'])) {
 
     $kelas          = $_POST['kelas'];
     $hari           = $_POST['hari'];
-    $mata_kuliah    = $_POST['mata_kuliah'];
-    $dosen          = $_POST['dosen'];
-    $ruang          = $_POST['ruang'];
     $semester       = $_POST['semester'];
     $tahun_akademik = $_POST['tahun_akademik'];
-    $jam_ke_list    = array_map('intval', $_POST['jam_ke_list']);
-    sort($jam_ke_list);
 
-    // Siapkan data untuk setiap slot, sekaligus cek bentrok
     $entries = [];
     $conflict_messages = [];
+    $used_jam_ke_in_day = []; // Untuk cek duplikasi jam antar group
 
-    foreach ($jam_ke_list as $jam_ke) {
-        $slot = getTimeSlotByJamKe($jam_ke);
-        if (!$slot) {
-            $errors[] = "Jam ke-$jam_ke tidak valid.";
-            continue;
+    foreach ($groups as $group_idx => $group) {
+        $mata_kuliah = trim($group['mata_kuliah']);
+        $dosen       = trim($group['dosen']);
+        $ruang       = trim($group['ruang']);
+        $jam_ke_list = array_map('intval', $group['jam_ke_list']);
+        sort($jam_ke_list);
+
+        // Cek duplikasi jam dengan group sebelumnya dalam request yang sama
+        foreach ($jam_ke_list as $jam_ke) {
+            if (in_array($jam_ke, $used_jam_ke_in_day)) {
+                $conflict_messages[] = "Slot '" . $mata_kuliah . "': Jam ke-$jam_ke sudah digunakan di slot lain pada hari yang sama.";
+            } else {
+                $used_jam_ke_in_day[] = $jam_ke;
+            }
         }
-        list($mulai, $selesai) = $slot;
-        $waktu = "$mulai - $selesai";
+    }
 
-        // Cek bentrok (exclude_id = null karena ini insert baru)
-        $conflicts = checkScheduleConflict(
-            $db,
-            $kelas,
-            $hari,
-            $mulai,
-            $selesai,
-            $semester,
-            $tahun_akademik,
-            $dosen,
-            $ruang
-        );
+    // Jika ada konflik internal, hentikan
+    if (!empty($conflict_messages)) {
+        $_SESSION['error'] = "Terdapat duplikasi jam dalam satu hari:<br>" . implode("<br>", $conflict_messages);
+        header('Location: manage_schedule.php');
+        exit();
+    }
 
-        if (!empty($conflicts)) {
-            $conflict_messages[] = "Jam ke-$jam_ke ($waktu): " . implode(', ', $conflicts);
-        } else {
-            $entries[] = [
-                'kelas'          => $kelas,
-                'hari'           => $hari,
-                'jam_ke'         => $jam_ke,
-                'waktu'          => $waktu,
-                'mata_kuliah'    => $mata_kuliah,
-                'dosen'          => $dosen,
-                'ruang'          => $ruang,
-                'semester'       => $semester,
-                'tahun_akademik' => $tahun_akademik
-            ];
+    // Proses setiap group untuk membuat entries dan cek bentrok dengan database
+    foreach ($groups as $group) {
+        $mata_kuliah = trim($group['mata_kuliah']);
+        $dosen       = trim($group['dosen']);
+        $ruang       = trim($group['ruang']);
+        $jam_ke_list = array_map('intval', $group['jam_ke_list']);
+        sort($jam_ke_list);
+
+        foreach ($jam_ke_list as $jam_ke) {
+            $slot = getTimeSlotByJamKe($jam_ke);
+            if (!$slot) {
+                $errors[] = "Jam ke-$jam_ke tidak valid.";
+                continue;
+            }
+            list($mulai, $selesai) = $slot;
+            $waktu = "$mulai - $selesai";
+
+            // Cek bentrok dengan database (exclude_id = null)
+            $conflicts = checkScheduleConflict(
+                $db,
+                $kelas,
+                $hari,
+                $mulai,
+                $selesai,
+                $semester,
+                $tahun_akademik,
+                $dosen,
+                $ruang
+            );
+
+            if (!empty($conflicts)) {
+                $conflict_messages[] = "Mata kuliah '$mata_kuliah' jam ke-$jam_ke ($waktu): " . implode(', ', $conflicts);
+            } else {
+                $entries[] = [
+                    'kelas'          => $kelas,
+                    'hari'           => $hari,
+                    'jam_ke'         => $jam_ke,
+                    'waktu'          => $waktu,
+                    'mata_kuliah'    => $mata_kuliah,
+                    'dosen'          => $dosen,
+                    'ruang'          => $ruang,
+                    'semester'       => $semester,
+                    'tahun_akademik' => $tahun_akademik
+                ];
+            }
         }
     }
 
@@ -225,13 +272,12 @@ if (isset($_POST['add_bulk_schedule'])) {
 
         $db->commit();
 
-        // Log activity (ringkasan)
-        $jam_str = implode(',', $jam_ke_list);
+        // Log activity
         logActivity(
             $db,
             $_SESSION['user_id'],
-            'Tambah Massal Jadwal',
-            "Kelas: $kelas, Matkul: $mata_kuliah, Hari: $hari, Jam ke: $jam_str (" . count($entries) . " slot)"
+            'Tambah Massal Jadwal (Multi Slot)',
+            "Kelas: $kelas, Hari: $hari, " . count($entries) . " slot dari " . count($groups) . " mata kuliah"
         );
 
         $_SESSION['message'] = "Berhasil menambahkan " . count($entries) . " jadwal sekaligus.";
@@ -460,6 +506,13 @@ $query_kelas_all = "SELECT DISTINCT kelas FROM schedules ORDER BY kelas";
 $stmt_kelas_all = $db->prepare($query_kelas_all);
 $stmt_kelas_all->execute();
 $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
+
+// Siapkan mapping waktu untuk JavaScript
+$time_slots_js = [];
+for ($i = 1; $i <= 10; $i++) {
+    $slot = getTimeSlotByJamKe($i);
+    $time_slots_js[$i] = $slot ? implode(' - ', $slot) : 'Tidak tersedia';
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -966,6 +1019,18 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 /* Mencegah zoom otomatis di iOS */
                 padding: 0.5rem 0.75rem;
             }
+        }
+
+        /* Style tambahan untuk slot group */
+        .slot-group {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+        }
+
+        .slot-group .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 10px 10px 0 0 !important;
         }
     </style>
 </head>
@@ -1513,96 +1578,70 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     </div>
                     <div class="modal-body" style="max-height: 65vh; overflow-y: auto;">
                         <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label>Kelas <span class="text-danger">*</span></label>
-                                    <input type="text" name="kelas" class="form-control" required placeholder="Contoh: A1, B2, C3">
-                                </div>
-                                <div class="mb-3">
-                                    <label>Hari <span class="text-danger">*</span></label>
-                                    <select name="hari" class="form-control" required>
-                                        <option value="">Pilih Hari</option>
-                                        <option value="SENIN">SENIN</option>
-                                        <option value="SELASA">SELASA</option>
-                                        <option value="RABU">RABU</option>
-                                        <option value="KAMIS">KAMIS</option>
-                                        <option value="JUMAT">JUMAT</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <div class="row time-row">
-                                        <div class="col-md-6">
-                                            <label>Waktu Mulai <span class="text-danger">*</span></label>
-                                            <input type="time" name="waktu_mulai" id="add_waktu_mulai" class="form-control" required value="07:30" step="60">
-                                            <small class="text-muted">Format 24 jam (HH:MM)</small>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Waktu Selesai <span class="text-danger">*</span></label>
-                                            <input type="time" name="waktu_selesai" id="add_waktu_selesai" class="form-control" required value="09:00" step="60">
-                                            <small class="text-muted">Format 24 jam (HH:MM)</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Jam Ke <span class="text-danger">*</span></label>
-                                    <select name="jam_ke" class="form-control" required>
-                                        <option value="">Pilih Jam Ke</option>
-                                        <?php for ($i = 1; $i <= 10; $i++): ?>
-                                            <option value="<?php echo $i; ?>">Jam Ke-<?php echo $i; ?></option>
-                                        <?php endfor; ?>
-                                    </select>
-                                </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Kelas</label>
+                                <input type="text" name="kelas" class="form-control" required>
                             </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label>Mata Kuliah <span class="text-danger">*</span></label>
-                                    <input type="text" name="mata_kuliah" class="form-control" required placeholder="Nama mata kuliah">
-                                </div>
-                                <div class="mb-3">
-                                    <label>Dosen <span class="text-danger">*</span></label>
-                                    <input type="text" name="dosen" class="form-control" required placeholder="Nama dosen">
-                                </div>
-                                <div class="mb-3">
-                                    <label>Ruang <span class="text-danger">*</span></label>
-                                    <select name="ruang" class="form-control" required>
-                                        <option value="">Pilih Ruangan</option>
-                                        <?php foreach ($rooms as $room): ?>
-                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Semester <span class="text-danger">*</span></label>
-                                    <select name="semester" class="form-control" required>
-                                        <option value="">Pilih Semester</option>
-                                        <option value="GANJIL" <?php echo $semester_aktif == 'GANJIL' ? 'selected' : ''; ?>>GANJIL</option>
-                                        <option value="GENAP" <?php echo $semester_aktif == 'GENAP' ? 'selected' : ''; ?>>GENAP</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Tahun Akademik <span class="text-danger">*</span></label>
-                                    <select name="tahun_akademik" class="form-control" required>
-                                        <option value="">Pilih Tahun Akademik</option>
-                                        <?php foreach ($tahun_list as $tahun): ?>
-                                            <option value="<?php echo htmlspecialchars($tahun); ?>"
-                                                <?php echo $tahun == $tahun_akademik_aktif ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($tahun); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <small class="form-text text-muted">
-                                        <i class="fas fa-info-circle me-1"></i>
-                                        Tambah tahun akademik baru di <a href="manage_semester.php" target="_blank">Kelola Semester</a>
-                                    </small>
+                            <div class="col-md-6 mb-3">
+                                <label>Hari</label>
+                                <select name="hari" class="form-control" required>
+                                    <option value="">Pilih Hari</option>
+                                    <option value="SENIN">SENIN</option>
+                                    <option value="SELASA">SELASA</option>
+                                    <option value="RABU">RABU</option>
+                                    <option value="KAMIS">KAMIS</option>
+                                    <option value="JUMAT">JUMAT</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label>Jam Ke</label>
+                                <input type="number" name="jam_ke" class="form-control" min="1" max="10" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Waktu</label>
+                                <div class="time-row">
+                                    <input type="time" name="waktu_mulai" class="form-control" required>
+                                    <span>-</span>
+                                    <input type="time" name="waktu_selesai" class="form-control" required>
                                 </div>
                             </div>
                         </div>
-                        <div class="row mt-3">
-                            <div class="col-12">
-                                <div class="alert alert-info">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    <strong>Informasi:</strong> Sistem akan otomatis mengecek bentrok jadwal sebelum disimpan.
-                                </div>
+                        <div class="mb-3">
+                            <label>Mata Kuliah</label>
+                            <input type="text" name="mata_kuliah" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label>Dosen</label>
+                            <input type="text" name="dosen" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label>Ruang</label>
+                            <select name="ruang" class="form-control" required>
+                                <option value="">Pilih Ruangan</option>
+                                <?php foreach ($rooms as $room): ?>
+                                    <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label>Semester</label>
+                                <select name="semester" class="form-control" required>
+                                    <option value="GANJIL" <?php echo $semester_aktif == 'GANJIL' ? 'selected' : ''; ?>>GANJIL</option>
+                                    <option value="GENAP" <?php echo $semester_aktif == 'GENAP' ? 'selected' : ''; ?>>GENAP</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Tahun Akademik</label>
+                                <select name="tahun_akademik" class="form-control" required>
+                                    <?php foreach ($tahun_list as $tahun): ?>
+                                        <option value="<?php echo htmlspecialchars($tahun); ?>" <?php echo $tahun == $tahun_akademik_aktif ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($tahun); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -1622,86 +1661,75 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form method="POST" id="editForm">
+                    <input type="hidden" name="id" id="edit_id">
                     <div class="modal-header">
                         <h5 class="modal-title">Edit Jadwal</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body" style="max-height: 65vh; overflow-y: auto;">
-                        <input type="hidden" name="id" id="edit_id">
                         <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label>Kelas <span class="text-danger">*</span></label>
-                                    <input type="text" name="kelas" id="edit_kelas" class="form-control" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Hari <span class="text-danger">*</span></label>
-                                    <select name="hari" id="edit_hari" class="form-control" required>
-                                        <option value="SENIN">SENIN</option>
-                                        <option value="SELASA">SELASA</option>
-                                        <option value="RABU">RABU</option>
-                                        <option value="KAMIS">KAMIS</option>
-                                        <option value="JUMAT">JUMAT</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <div class="row time-row">
-                                        <div class="col-md-6">
-                                            <label>Waktu Mulai <span class="text-danger">*</span></label>
-                                            <input type="time" name="waktu_mulai" id="edit_waktu_mulai" class="form-control" required step="60">
-                                            <small class="text-muted">Format 24 jam (HH:MM)</small>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label>Waktu Selesai <span class="text-danger">*</span></label>
-                                            <input type="time" name="waktu_selesai" id="edit_waktu_selesai" class="form-control" required step="60">
-                                            <small class="text-muted">Format 24 jam (HH:MM)</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Jam Ke <span class="text-danger">*</span></label>
-                                    <select name="jam_ke" id="edit_jam_ke" class="form-control" required>
-                                        <?php for ($i = 1; $i <= 10; $i++): ?>
-                                            <option value="<?php echo $i; ?>">Jam Ke-<?php echo $i; ?></option>
-                                        <?php endfor; ?>
-                                    </select>
+                            <div class="col-md-6 mb-3">
+                                <label>Kelas</label>
+                                <input type="text" name="kelas" id="edit_kelas" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Hari</label>
+                                <select name="hari" id="edit_hari" class="form-control" required>
+                                    <option value="">Pilih Hari</option>
+                                    <option value="SENIN">SENIN</option>
+                                    <option value="SELASA">SELASA</option>
+                                    <option value="RABU">RABU</option>
+                                    <option value="KAMIS">KAMIS</option>
+                                    <option value="JUMAT">JUMAT</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label>Jam Ke</label>
+                                <input type="number" name="jam_ke" id="edit_jam_ke" class="form-control" min="1" max="10" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Waktu</label>
+                                <div class="time-row">
+                                    <input type="time" name="waktu_mulai" id="edit_waktu_mulai" class="form-control" required>
+                                    <span>-</span>
+                                    <input type="time" name="waktu_selesai" id="edit_waktu_selesai" class="form-control" required>
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label>Mata Kuliah <span class="text-danger">*</span></label>
-                                    <input type="text" name="mata_kuliah" id="edit_mata_kuliah" class="form-control" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Dosen <span class="text-danger">*</span></label>
-                                    <input type="text" name="dosen" id="edit_dosen" class="form-control" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Ruang <span class="text-danger">*</span></label>
-                                    <select name="ruang" id="edit_ruang" class="form-control" required>
-                                        <?php foreach ($rooms as $room): ?>
-                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Semester <span class="text-danger">*</span></label>
-                                    <select name="semester" id="edit_semester" class="form-control" required>
-                                        <option value="GANJIL">GANJIL</option>
-                                        <option value="GENAP">GENAP</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label>Tahun Akademik <span class="text-danger">*</span></label>
-                                    <select name="tahun_akademik" id="edit_tahun_akademik" class="form-control" required>
-                                        <option value="">Pilih Tahun Akademik</option>
-                                        <?php foreach ($tahun_list as $tahun): ?>
-                                            <option value="<?php echo htmlspecialchars($tahun); ?>">
-                                                <?php echo htmlspecialchars($tahun); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
+                        </div>
+                        <div class="mb-3">
+                            <label>Mata Kuliah</label>
+                            <input type="text" name="mata_kuliah" id="edit_mata_kuliah" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label>Dosen</label>
+                            <input type="text" name="dosen" id="edit_dosen" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label>Ruang</label>
+                            <select name="ruang" id="edit_ruang" class="form-control" required>
+                                <option value="">Pilih Ruangan</option>
+                                <?php foreach ($rooms as $room): ?>
+                                    <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label>Semester</label>
+                                <select name="semester" id="edit_semester" class="form-control" required>
+                                    <option value="GANJIL">GANJIL</option>
+                                    <option value="GENAP">GENAP</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label>Tahun Akademik</label>
+                                <select name="tahun_akademik" id="edit_tahun_akademik" class="form-control" required>
+                                    <?php foreach ($tahun_list as $tahun): ?>
+                                        <option value="<?php echo htmlspecialchars($tahun); ?>"><?php echo htmlspecialchars($tahun); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -1722,42 +1750,20 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
             <div class="modal-content">
                 <form method="POST">
                     <div class="modal-header bg-danger text-white">
-                        <h5 class="modal-title">
-                            <i class="fas fa-exclamation-triangle me-2"></i>Konfirmasi Hapus Semua Data
-                        </h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Konfirmasi Hapus Semua</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="alert alert-danger">
-                            <h6 class="alert-heading">
-                                <i class="fas fa-exclamation-circle me-2"></i>PERINGATAN!
-                            </h6>
-                            <p class="mb-2">Tindakan ini akan menghapus <strong>SELURUH DATA JADWAL</strong> dari sistem.</p>
-                            <ul class="mb-2">
-                                <li>Semua jadwal kuliah akan dihapus permanen</li>
-                                <li>Tidak dapat dikembalikan</li>
-                                <li>Total data yang akan dihapus: <strong><?php echo count($schedules); ?> jadwal</strong></li>
-                            </ul>
-                            <p class="mb-0 fw-bold">Masukkan password Anda untuk mengonfirmasi:</p>
-                        </div>
-
+                        <p>Anda akan menghapus <strong>semua data jadwal</strong> (<?php echo count($schedules); ?> data). Tindakan ini tidak dapat dibatalkan!</p>
                         <div class="mb-3">
-                            <label for="confirm_password" class="form-label">Password Konfirmasi</label>
-                            <input type="password" class="form-control" id="confirm_password"
-                                name="confirm_password" required
-                                placeholder="Masukkan password Anda untuk konfirmasi">
-                            <div class="form-text">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Masukkan password akun Anda untuk mengonfirmasi penghapusan semua data
-                            </div>
+                            <label>Masukkan password Anda untuk konfirmasi:</label>
+                            <input type="password" name="confirm_password" class="form-control" required>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                            <i class="fas fa-times me-2"></i>Batal
-                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
                         <button type="submit" name="delete_all_schedules" class="btn btn-danger">
-                            <i class="fas fa-trash-alt me-2"></i>Ya, Hapus Semua Data
+                            <i class="fas fa-trash-alt me-2"></i>Hapus Semua
                         </button>
                     </div>
                 </form>
@@ -1765,16 +1771,16 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
         </div>
     </div>
 
-    <!-- ==================== MODAL TAMBAH MASSAL ==================== -->
+    <!-- ==================== MODAL TAMBAH MASSAL (MULTI-SLOT) ==================== -->
     <div class="modal fade" id="bulkAddModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <form method="POST" id="bulkAddForm">
                     <div class="modal-header bg-success text-white">
-                        <h5 class="modal-title"><i class="fas fa-layer-group me-2"></i>Tambah Jadwal Massal (Multi Jam)</h5>
+                        <h5 class="modal-title"><i class="fas fa-layer-group me-2"></i>Tambah Jadwal Massal (Multi Slot)</h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
-                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
@@ -1792,25 +1798,8 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                                         <option value="JUMAT">JUMAT</option>
                                     </select>
                                 </div>
-                                <div class="mb-3">
-                                    <label>Mata Kuliah <span class="text-danger">*</span></label>
-                                    <input type="text" name="mata_kuliah" class="form-control" required placeholder="Nama mata kuliah">
-                                </div>
-                                <div class="mb-3">
-                                    <label>Dosen <span class="text-danger">*</span></label>
-                                    <input type="text" name="dosen" class="form-control" required placeholder="Nama dosen">
-                                </div>
                             </div>
                             <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label>Ruang <span class="text-danger">*</span></label>
-                                    <select name="ruang" class="form-control" required>
-                                        <option value="">Pilih Ruangan</option>
-                                        <?php foreach ($rooms as $room): ?>
-                                            <option value="<?php echo htmlspecialchars($room); ?>"><?php echo htmlspecialchars($room); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
                                 <div class="mb-3">
                                     <label>Semester <span class="text-danger">*</span></label>
                                     <select name="semester" class="form-control" required>
@@ -1832,40 +1821,25 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                             </div>
                         </div>
 
+                        <hr>
+                        <h6 class="mb-3"><i class="fas fa-list-ul me-2"></i>Slot Mata Kuliah</h6>
+
+                        <!-- Container untuk semua slot group -->
+                        <div id="slotGroupsContainer">
+                            <!-- Slot group pertama akan dirender oleh JavaScript -->
+                        </div>
+
+                        <!-- Tombol Tambah Slot -->
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="addSlotGroupBtn">
+                                <i class="fas fa-plus me-1"></i>Tambah Slot Mata Kuliah
+                            </button>
+                            <small class="text-muted ms-2">Maksimal 5 slot per hari</small>
+                        </div>
+
                         <div class="alert alert-info mt-3">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>Pilih jam ke yang akan diisi:</strong> (durasi 50 menit per jam, sesuai jadwal standar)
-                        </div>
-
-                        <div class="row">
-                            <?php
-                            // Mapping waktu untuk preview di label
-                            $time_slots = [];
-                            for ($i = 1; $i <= 10; $i++) {
-                                $slot = getTimeSlotByJamKe($i);
-                                $time_slots[$i] = $slot ? implode(' - ', $slot) : 'Tidak tersedia';
-                            }
-                            ?>
-                            <div class="col-12">
-                                <div class="row">
-                                    <?php for ($i = 1; $i <= 10; $i++): ?>
-                                        <div class="col-6 col-md-4 col-lg-3 mb-2">
-                                            <div class="form-check">
-                                                <input class="form-check-input jam-checkbox" type="checkbox" name="jam_ke_list[]" value="<?php echo $i; ?>" id="jam_<?php echo $i; ?>">
-                                                <label class="form-check-label" for="jam_<?php echo $i; ?>">
-                                                    <strong>Jam ke-<?php echo $i; ?></strong><br>
-                                                    <small class="text-muted"><?php echo $time_slots[$i]; ?></small>
-                                                </label>
-                                            </div>
-                                        </div>
-                                    <?php endfor; ?>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mt-3">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllJam">Pilih Semua</button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllJam">Batal Pilih</button>
+                            <strong>Petunjuk:</strong> Pilih jam untuk setiap mata kuliah. Jam yang sudah dipilih di slot lain akan dinonaktifkan.
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1884,8 +1858,12 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
     <script src="https://cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
     <script>
+        // Data dari PHP untuk JavaScript
+        const timeSlots = <?php echo json_encode($time_slots_js); ?>;
+        const roomsList = <?php echo json_encode($rooms); ?>;
+
         $(document).ready(function() {
-            // Inisialisasi DataTables untuk desktop
+            // Inisialisasi DataTables
             <?php if (count($schedules) > 0): ?>
                 $('#scheduleTableDesktop').DataTable({
                     "language": {
@@ -1905,7 +1883,6 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                     "scrollX": false
                 });
 
-                // Inisialisasi DataTables untuk mobile
                 $('#scheduleTableMobile').DataTable({
                     "language": {
                         "url": "https://cdn.datatables.net/plug-ins/1.13.1/i18n/id.json"
@@ -1927,395 +1904,285 @@ $kelas_list_all = $stmt_kelas_all->fetchAll(PDO::FETCH_COLUMN);
                 });
             <?php endif; ?>
 
-            // Select / deselect all jam
-            $('#selectAllJam').click(function() {
-                $('.jam-checkbox').prop('checked', true);
-            });
-            $('#deselectAllJam').click(function() {
-                $('.jam-checkbox').prop('checked', false);
-            });
+            // ========== MULTI-SLOT BULK ADD (REVISED) ==========
+            let slotGroupCounter = 0;
+            const MAX_SLOTS = 5;
+            const $container = $('#slotGroupsContainer');
 
-            // Validasi client-side bulk form
-            $('#bulkAddForm').on('submit', function(e) {
-                var checked = $('.jam-checkbox:checked').length;
-                if (checked === 0) {
-                    e.preventDefault();
-                    alert('Pilih minimal satu jam ke!');
-                    return false;
+            // Fungsi untuk membuat satu slot group (HTML string)
+            function createSlotGroup(index) {
+                const groupId = `group_${index}`;
+                let html = `
+                    <div class="card mb-3 slot-group" id="${groupId}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
+                            <span class="fw-bold">Slot #${index + 1}</span>
+                            ${index > 0 ? '<button type="button" class="btn btn-sm btn-outline-danger remove-slot-btn"><i class="fas fa-trash"></i></button>' : ''}
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4 mb-2">
+                                    <label>Mata Kuliah <span class="text-danger">*</span></label>
+                                    <input type="text" name="groups[${index}][mata_kuliah]" class="form-control" required placeholder="Nama mata kuliah">
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label>Dosen <span class="text-danger">*</span></label>
+                                    <input type="text" name="groups[${index}][dosen]" class="form-control" required placeholder="Nama dosen">
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label>Ruang <span class="text-danger">*</span></label>
+                                    <select name="groups[${index}][ruang]" class="form-control" required>
+                                        <option value="">Pilih Ruangan</option>
+                `;
+                roomsList.forEach(room => {
+                    html += `<option value="${room}">${room}</option>`;
+                });
+                html += `
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <label>Pilih Jam Ke:</label>
+                                <div class="row">
+                `;
+                for (let i = 1; i <= 10; i++) {
+                    html += `
+                        <div class="col-6 col-md-4 col-lg-3 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input jam-checkbox" type="checkbox" 
+                                       name="groups[${index}][jam_ke_list][]" value="${i}" 
+                                       id="jam_${index}_${i}" data-group="${index}" data-jam="${i}">
+                                <label class="form-check-label" for="jam_${index}_${i}">
+                                    <strong>Jam ke-${i}</strong><br>
+                                    <small class="text-muted">${timeSlots[i] || 'Tidak tersedia'}</small>
+                                </label>
+                            </div>
+                        </div>
+                    `;
                 }
+                html += `
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return html;
+            }
 
-                // Konfirmasi
-                var kelas = $('input[name="kelas"]').val();
-                var matkul = $('input[name="mata_kuliah"]').val();
-                if (!confirm('Tambah ' + checked + ' jadwal untuk mata kuliah "' + matkul + '" kelas ' + kelas + '?')) {
-                    e.preventDefault();
-                    return false;
+            // Fungsi untuk menambahkan slot group baru (tanpa merender ulang semua)
+            function addNewSlotGroup() {
+                if (slotGroupCounter >= MAX_SLOTS - 1) return;
+
+                slotGroupCounter++;
+                const newGroupHtml = createSlotGroup(slotGroupCounter);
+                $container.append(newGroupHtml);
+
+                // Update status disable checkbox
+                updateCheckboxState();
+
+                // Nonaktifkan tombol tambah jika sudah mencapai maksimum
+                if (slotGroupCounter >= MAX_SLOTS - 1) {
+                    $('#addSlotGroupBtn').prop('disabled', true);
                 }
-                return true;
+            }
+
+            // Fungsi re-index setelah penghapusan (nama input dan id diperbarui)
+            function reindexGroups() {
+                $('.slot-group').each(function(newIndex) {
+                    const $group = $(this);
+                    const oldId = $group.attr('id');
+                    const newId = `group_${newIndex}`;
+                    $group.attr('id', newId);
+
+                    // Update header
+                    $group.find('.card-header span.fw-bold').text(`Slot #${newIndex + 1}`);
+
+                    // Update semua atribut name yang mengandung groups[index]
+                    $group.find('[name^="groups["]').each(function() {
+                        const name = $(this).attr('name');
+                        const newName = name.replace(/groups\[\d+\]/, `groups[${newIndex}]`);
+                        $(this).attr('name', newName);
+                    });
+
+                    // Update checkbox id, data-group, dan label for
+                    $group.find('.jam-checkbox').each(function() {
+                        const $cb = $(this);
+                        const jam = $cb.data('jam');
+                        const newCheckboxId = `jam_${newIndex}_${jam}`;
+                        $cb.attr('id', newCheckboxId);
+                        $cb.data('group', newIndex);
+                        $cb.closest('.form-check').find('label').attr('for', newCheckboxId);
+                    });
+
+                    // Tampilkan tombol hapus hanya untuk index > 0
+                    if (newIndex === 0) {
+                        $group.find('.remove-slot-btn').remove();
+                    } else {
+                        if ($group.find('.remove-slot-btn').length === 0) {
+                            $group.find('.card-header').append('<button type="button" class="btn btn-sm btn-outline-danger remove-slot-btn"><i class="fas fa-trash"></i></button>');
+                        }
+                    }
+                });
+
+                // Update counter sesuai jumlah group yang tersisa
+                slotGroupCounter = $('.slot-group').length - 1;
+
+                // Aktifkan kembali tombol tambah jika di bawah maksimum
+                if (slotGroupCounter < MAX_SLOTS - 1) {
+                    $('#addSlotGroupBtn').prop('disabled', false);
+                }
+            }
+
+            // Fungsi updateCheckboxState (tidak berubah, hanya perlu dipanggil saat diperlukan)
+            function updateCheckboxState() {
+                // Reset semua disable terlebih dahulu
+                $('.jam-checkbox').prop('disabled', false);
+
+                // Kumpulkan jam yang sudah dipilih per group
+                let selectedPerGroup = {};
+                $('.jam-checkbox:checked').each(function() {
+                    const group = $(this).data('group');
+                    const jam = $(this).data('jam');
+                    if (!selectedPerGroup[group]) selectedPerGroup[group] = [];
+                    selectedPerGroup[group].push(jam);
+                });
+
+                // Nonaktifkan checkbox dengan jam yang sama di group lain
+                $('.jam-checkbox').each(function() {
+                    const $cb = $(this);
+                    const group = $cb.data('group');
+                    const jam = $cb.data('jam');
+
+                    for (let g in selectedPerGroup) {
+                        if (g != group && selectedPerGroup[g].includes(jam)) {
+                            $cb.prop('disabled', true);
+                            break;
+                        }
+                    }
+                });
+            }
+
+            // Event handler untuk checkbox jam
+            $(document).on('change', '.jam-checkbox', function() {
+                updateCheckboxState();
             });
 
-            // Reset form saat modal ditutup
+            // Tombol Tambah Slot Group
+            $('#addSlotGroupBtn').click(function() {
+                addNewSlotGroup();
+            });
+
+            // Hapus slot group (delegasi event)
+            $(document).on('click', '.remove-slot-btn', function() {
+                const $group = $(this).closest('.slot-group');
+                $group.remove();
+                reindexGroups();
+                updateCheckboxState();
+            });
+
+            // Inisialisasi saat modal dibuka
+            $('#bulkAddModal').on('shown.bs.modal', function() {
+                // Reset container dan tambahkan satu group awal
+                $container.empty();
+                slotGroupCounter = 0;
+                $container.append(createSlotGroup(0));
+                $('#addSlotGroupBtn').prop('disabled', false);
+                updateCheckboxState();
+            });
+
+            // Reset saat modal ditutup (opsional)
             $('#bulkAddModal').on('hidden.bs.modal', function() {
+                $container.empty();
+                slotGroupCounter = 0;
+                $('#addSlotGroupBtn').prop('disabled', false);
                 $(this).find('form')[0].reset();
-                $('.jam-checkbox').prop('checked', false);
-                // Set default semester & tahun
                 $(this).find('select[name="semester"]').val('<?php echo $semester_aktif; ?>');
                 $(this).find('select[name="tahun_akademik"]').val('<?php echo $tahun_akademik_aktif; ?>');
             });
 
-            // Auto focus ke input waktu mulai saat modal tambah terbuka
-            $('#addModal').on('shown.bs.modal', function() {
-                $('#add_waktu_mulai').focus();
-            });
+            // Validasi form bulk sebelum submit
+            $('#bulkAddForm').on('submit', function(e) {
+                let valid = true;
+                let errorMsg = '';
 
-            // Auto focus ke input password saat modal hapus semua terbuka
-            $('#deleteAllModal').on('shown.bs.modal', function() {
-                $('#confirm_password').focus();
-            });
+                $('.slot-group').each(function() {
+                    const $group = $(this);
+                    const groupIndex = $group.attr('id').split('_')[1];
+                    const checkedCount = $group.find('.jam-checkbox:checked').length;
 
-            // Reset form saat modal tambah ditutup
-            $('#addModal').on('hidden.bs.modal', function() {
-                $(this).find('form')[0].reset();
-                $('#add_waktu_mulai').val('07:30');
-                $('#add_waktu_selesai').val('09:00');
-                // Reset tahun akademik ke aktif
-                $('#addModal select[name="tahun_akademik"]').val('<?php echo $tahun_akademik_aktif; ?>');
-            });
-
-            // Reset form saat modal hapus semua ditutup
-            $('#deleteAllModal').on('hidden.bs.modal', function() {
-                $(this).find('form')[0].reset();
-            });
-
-            // Validasi untuk modal hapus semua
-            $('#deleteAllModal form').on('submit', function(e) {
-                const password = $('#confirm_password').val();
-                if (password.length < 1) {
-                    e.preventDefault();
-                    alert('Silakan masukkan password untuk konfirmasi!');
-                    $('#confirm_password').focus();
-                    return false;
-                }
-
-                if (!confirm('Apakah Anda yakin ingin menghapus SEMUA data jadwal? Tindakan ini tidak dapat dibatalkan!')) {
-                    e.preventDefault();
-                    return false;
-                }
-
-                return true;
-            });
-
-            // Auto adjust end time based on start time
-            $('#add_waktu_mulai').on('change', function() {
-                const startTime = $(this).val();
-                if (startTime) {
-                    const [hours, minutes] = startTime.split(':').map(Number);
-                    // Tambah 90 menit (1.5 jam)
-                    let totalMinutes = hours * 60 + minutes + 90;
-
-                    // Handle jika melewati tengah malam
-                    if (totalMinutes >= 24 * 60) {
-                        totalMinutes = totalMinutes - (24 * 60);
+                    if (checkedCount === 0) {
+                        valid = false;
+                        errorMsg += `Slot #${parseInt(groupIndex)+1}: Pilih minimal satu jam.\n`;
                     }
 
-                    const endHours = Math.floor(totalMinutes / 60);
-                    const endMinutes = totalMinutes % 60;
-                    const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
-                    $('#add_waktu_selesai').val(endTime);
+                    const matkul = $group.find('input[name$="[mata_kuliah]"]').val();
+                    const dosen = $group.find('input[name$="[dosen]"]').val();
+                    const ruang = $group.find('select[name$="[ruang]"]').val();
 
-                    // Tampilkan notifikasi jika melewati tengah malam
-                    if (totalMinutes >= 24 * 60) {
-                        alert('Perhatian: Waktu selesai melewati tengah malam!');
+                    if (!matkul || !dosen || !ruang) {
+                        valid = false;
+                        errorMsg += `Slot #${parseInt(groupIndex)+1}: Mata kuliah, dosen, dan ruang harus diisi.\n`;
                     }
-                }
-            });
+                });
 
-            $('#edit_waktu_mulai').on('change', function() {
-                const startTime = $(this).val();
-                if (startTime) {
-                    const [hours, minutes] = startTime.split(':').map(Number);
-                    // Tambah 90 menit (1.5 jam)
-                    let totalMinutes = hours * 60 + minutes + 90;
-
-                    // Handle jika melewati tengah malam
-                    if (totalMinutes >= 24 * 60) {
-                        totalMinutes = totalMinutes - (24 * 60);
-                    }
-
-                    const endHours = Math.floor(totalMinutes / 60);
-                    const endMinutes = totalMinutes % 60;
-                    const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
-                    $('#edit_waktu_selesai').val(endTime);
-
-                    // Tampilkan notifikasi jika melewati tengah malam
-                    if (totalMinutes >= 24 * 60) {
-                        alert('Perhatian: Waktu selesai melewati tengah malam!');
-                    }
-                }
-            });
-
-            // Validasi form tambah
-            $('#addForm').on('submit', function(e) {
-                const waktu_mulai = $('#add_waktu_mulai').val();
-                const waktu_selesai = $('#add_waktu_selesai').val();
-                const jam_ke = $('select[name="jam_ke"]').val();
-                const kelas = $('input[name="kelas"]').val();
-                const mata_kuliah = $('input[name="mata_kuliah"]').val();
-                const dosen = $('input[name="dosen"]').val();
-                const tahun_akademik = $('select[name="tahun_akademik"]').val();
-
-                if (!kelas) {
+                if (!valid) {
                     e.preventDefault();
-                    alert('Kelas harus diisi');
-                    $('input[name="kelas"]').focus();
+                    alert(errorMsg);
                     return false;
                 }
 
-                if (!mata_kuliah) {
-                    e.preventDefault();
-                    alert('Mata kuliah harus diisi');
-                    $('input[name="mata_kuliah"]').focus();
-                    return false;
-                }
-
-                if (!dosen) {
-                    e.preventDefault();
-                    alert('Dosen harus diisi');
-                    $('input[name="dosen"]').focus();
-                    return false;
-                }
-
-                if (!tahun_akademik) {
-                    e.preventDefault();
-                    alert('Tahun akademik harus dipilih');
-                    $('select[name="tahun_akademik"]').focus();
-                    return false;
-                }
-
-                if (!waktu_mulai) {
-                    e.preventDefault();
-                    alert('Waktu mulai harus diisi');
-                    $('#add_waktu_mulai').focus();
-                    return false;
-                }
-
-                if (!waktu_selesai) {
-                    e.preventDefault();
-                    alert('Waktu selesai harus diisi');
-                    $('#add_waktu_selesai').focus();
-                    return false;
-                }
-
-                // Validasi format waktu (HH:MM)
-                const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-                if (!timeRegex.test(waktu_mulai) || !timeRegex.test(waktu_selesai)) {
-                    e.preventDefault();
-                    alert('Format waktu tidak valid! Gunakan format 24 jam HH:MM (contoh: 07:30)');
-                    return false;
-                }
-
-                // Konversi ke menit untuk perbandingan
-                const [startHour, startMinute] = waktu_mulai.split(':').map(Number);
-                const [endHour, endMinute] = waktu_selesai.split(':').map(Number);
-
-                const startTotalMinutes = startHour * 60 + startMinute;
-                const endTotalMinutes = endHour * 60 + endMinute;
-
-                // Hitung selisih waktu (handle jika melewati tengah malam)
-                let diffMinutes;
-                if (endTotalMinutes >= startTotalMinutes) {
-                    diffMinutes = endTotalMinutes - startTotalMinutes;
-                } else {
-                    // Melewati tengah malam
-                    diffMinutes = (24 * 60 - startTotalMinutes) + endTotalMinutes;
-                }
-
-                if (diffMinutes <= 0) {
-                    e.preventDefault();
-                    alert('Waktu selesai harus setelah waktu mulai!');
-                    return false;
-                }
-
-                if (diffMinutes < 30) {
-                    if (!confirm('Durasi waktu kurang dari 30 menit. Apakah Anda yakin?')) {
-                        e.preventDefault();
-                        return false;
-                    }
-                }
-
-                if (diffMinutes > 240) { // 4 jam
-                    if (!confirm('Durasi waktu lebih dari 4 jam. Apakah Anda yakin?')) {
-                        e.preventDefault();
-                        return false;
-                    }
-                }
-
-                if (!jam_ke || jam_ke < 1 || jam_ke > 10) {
-                    e.preventDefault();
-                    alert('Jam ke harus dipilih (1-10)');
-                    $('select[name="jam_ke"]').focus();
-                    return false;
-                }
-
-                if (!confirm('Simpan jadwal baru?')) {
-                    e.preventDefault();
-                    return false;
-                }
-
-                return true;
-            });
-
-            // Validasi form edit
-            $('#editForm').on('submit', function(e) {
-                const waktu_mulai = $('#edit_waktu_mulai').val();
-                const waktu_selesai = $('#edit_waktu_selesai').val();
-                const tahun_akademik = $('#edit_tahun_akademik').val();
-
-                if (!tahun_akademik) {
-                    e.preventDefault();
-                    alert('Tahun akademik harus dipilih');
-                    $('#edit_tahun_akademik').focus();
-                    return false;
-                }
-
-                if (!waktu_mulai || !waktu_selesai) {
-                    e.preventDefault();
-                    alert('Waktu mulai dan selesai harus diisi');
-                    return false;
-                }
-
-                // Validasi format waktu (HH:MM)
-                const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-                if (!timeRegex.test(waktu_mulai) || !timeRegex.test(waktu_selesai)) {
-                    e.preventDefault();
-                    alert('Format waktu tidak valid! Gunakan format 24 jam HH:MM (contoh: 07:30)');
-                    return false;
-                }
-
-                // Konversi ke menit untuk perbandingan
-                const [startHour, startMinute] = waktu_mulai.split(':').map(Number);
-                const [endHour, endMinute] = waktu_selesai.split(':').map(Number);
-
-                const startTotalMinutes = startHour * 60 + startMinute;
-                const endTotalMinutes = endHour * 60 + endMinute;
-
-                // Hitung selisih waktu (handle jika melewati tengah malam)
-                let diffMinutes;
-                if (endTotalMinutes >= startTotalMinutes) {
-                    diffMinutes = endTotalMinutes - startTotalMinutes;
-                } else {
-                    // Melewati tengah malam
-                    diffMinutes = (24 * 60 - startTotalMinutes) + endTotalMinutes;
-                }
-
-                if (diffMinutes <= 0) {
-                    e.preventDefault();
-                    alert('Waktu selesai harus setelah waktu mulai!');
-                    return false;
-                }
-
-                if (!confirm('Update jadwal ini?')) {
+                const totalSlots = $('.slot-group').length;
+                const totalJam = $('.jam-checkbox:checked').length;
+                if (!confirm(`Tambahkan ${totalJam} jadwal dari ${totalSlots} mata kuliah?`)) {
                     e.preventDefault();
                     return false;
                 }
                 return true;
             });
 
-            // Perbaikan untuk mobile: tutup modal saat submit berhasil
-            $('form').on('submit', function() {
-                if ($(window).width() < 768) {
-                    setTimeout(function() {
-                        $('.modal').modal('hide');
-                    }, 100);
-                }
-            });
-        });
+            // Fungsi editSchedule
+            window.editSchedule = function(schedule) {
+                $('#edit_id').val(schedule.id);
+                $('#edit_kelas').val(schedule.kelas);
+                $('#edit_hari').val(schedule.hari);
+                $('#edit_jam_ke').val(schedule.jam_ke);
 
-        function editSchedule(schedule) {
-            $('#edit_id').val(schedule.id);
-            $('#edit_kelas').val(schedule.kelas);
-            $('#edit_hari').val(schedule.hari);
-            $('#edit_jam_ke').val(schedule.jam_ke);
-
-            // Pisahkan waktu menjadi waktu_mulai dan waktu_selesai
-            var waktuParts = schedule.waktu.split(' - ');
-            if (waktuParts.length === 2) {
-                var waktuMulai = waktuParts[0].trim();
-                var waktuSelesai = waktuParts[1].trim();
-
-                // Validasi format
-                var timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-                if (timeRegex.test(waktuMulai) && timeRegex.test(waktuSelesai)) {
-                    $('#edit_waktu_mulai').val(waktuMulai);
-                    $('#edit_waktu_selesai').val(waktuSelesai);
+                var waktuParts = schedule.waktu.split(' - ');
+                if (waktuParts.length === 2) {
+                    $('#edit_waktu_mulai').val(waktuParts[0].trim());
+                    $('#edit_waktu_selesai').val(waktuParts[1].trim());
                 } else {
-                    // Default jika format tidak sesuai
                     $('#edit_waktu_mulai').val('07:30');
                     $('#edit_waktu_selesai').val('09:00');
                 }
-            } else {
-                // Default jika format tidak sesuai
-                $('#edit_waktu_mulai').val('07:30');
-                $('#edit_waktu_selesai').val('09:00');
-            }
 
-            $('#edit_mata_kuliah').val(schedule.mata_kuliah);
-            $('#edit_dosen').val(schedule.dosen);
-            $('#edit_ruang').val(schedule.ruang);
-            $('#edit_semester').val(schedule.semester);
-            $('#edit_tahun_akademik').val(schedule.tahun_akademik);
+                $('#edit_mata_kuliah').val(schedule.mata_kuliah);
+                $('#edit_dosen').val(schedule.dosen);
+                $('#edit_ruang').val(schedule.ruang);
+                $('#edit_semester').val(schedule.semester);
+                $('#edit_tahun_akademik').val(schedule.tahun_akademik);
 
-            $('#editModal').modal('show');
-        }
+                $('#editModal').modal('show');
+            };
 
-        // Filter data table by badge click
-        function filterTable(filterType, filterValue) {
-            const table = $('#scheduleTableDesktop').DataTable();
-            table.search('').columns().search('').draw();
-
-            if (filterType === 'kelas') {
-                table.column(1).search(filterValue).draw();
-            } else if (filterType === 'semester') {
-                table.column(8).search(filterValue).draw();
-            } else if (filterType === 'tahun') {
-                table.column(9).search(filterValue).draw();
-            }
-        }
-
-        // Export to Excel (simple implementation)
-        function exportToExcel() {
-            let table = document.getElementById("scheduleTableDesktop");
-            let rows = table.querySelectorAll("tr");
-            let csv = [];
-
-            for (let i = 0; i < rows.length; i++) {
-                let row = [],
-                    cols = rows[i].querySelectorAll("td, th");
-
-                for (let j = 0; j < cols.length - 1; j++) { // Exclude action column
-                    row.push(cols[j].innerText);
+            // Validasi waktu untuk form tambah dan edit (jika diperlukan)
+            $('#addForm, #editForm').on('submit', function(e) {
+                const mulai = $(this).find('input[name="waktu_mulai"]').val();
+                const selesai = $(this).find('input[name="waktu_selesai"]').val();
+                if (mulai && selesai && mulai >= selesai) {
+                    alert('Waktu selesai harus lebih besar dari waktu mulai.');
+                    e.preventDefault();
+                    return false;
                 }
-
-                csv.push(row.join(","));
-            }
-
-            let csvFile = new Blob([csv.join("\n")], {
-                type: "text/csv"
+                return true;
             });
-            let downloadLink = document.createElement("a");
-            downloadLink.download = "jadwal_kuliah_" + new Date().toISOString().slice(0, 10) + ".csv";
-            downloadLink.href = window.URL.createObjectURL(csvFile);
-            downloadLink.style.display = "none";
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-        }
+
+        });
     </script>
 </body>
 
 </html>
 <?php
-// Reset session messages untuk menghindari duplikasi
+// Reset session messages
 unset($_SESSION['message']);
 unset($_SESSION['error']);
 ?>
